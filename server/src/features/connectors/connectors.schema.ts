@@ -7,3 +7,9 @@ export const createConnectorSchema = z.object({
     config: z.record(z.string(), z.any()).default({}),
   }),
 });
+
+export const deleteConnectorSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+  }),
+});

@@ -11,3 +11,7 @@ export const createWorkflowSchema = z.object({
 export const publishWorkflowSchema = z.object({
   params: z.object({ workflowId: z.string().min(1) }),
 });
+
+export const deleteWorkflowSchema = z.object({
+  params: z.object({ workflowId: z.string().min(1) }),
+});

@@ -7,6 +7,8 @@ import {
   maskConnectorConfig,
   decryptConnectorConfig,
 } from './connectors.security';
+import { BlockModel } from '@/features/blocks/blocks.model';
+import { TriggerModel } from '@/features/triggers/triggers.model';
 
 interface CreateConnectorInput {
   name: string;
@@ -14,6 +16,11 @@ interface CreateConnectorInput {
   config: Record<string, unknown>;
   organizationId: string;
   userId: string;
+}
+
+interface DeleteConnectorInput {
+  connectorId: string;
+  organizationId: string;
 }
 
 export const createConnector = async (input: CreateConnectorInput) => {
@@ -59,4 +66,23 @@ export const decryptConnector = (connector: ConnectorDocument | any) => {
     ...connector,
     config: decryptConnectorConfig(connector.type, connector.config as Record<string, unknown>),
   };
+};
+
+export const deleteConnector = async (input: DeleteConnectorInput): Promise<void> => {
+  const connector = await ConnectorModel.findById(input.connectorId);
+  if (!connector || connector.organization.toString() !== input.organizationId) {
+    throw new AppError('Connector not found', HttpStatus.NOT_FOUND);
+  }
+
+  const blockUsage = await BlockModel.countDocuments({ connector: connector._id });
+  if (blockUsage > 0) {
+    throw new AppError('Connector is referenced by blocks', HttpStatus.BAD_REQUEST);
+  }
+
+  const triggerUsage = await TriggerModel.countDocuments({ connector: connector._id });
+  if (triggerUsage > 0) {
+    throw new AppError('Connector is referenced by triggers', HttpStatus.BAD_REQUEST);
+  }
+
+  await connector.deleteOne();
 };

@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
 import { findUserById } from '@/features/auth/auth.service';
-import { createConnector, listConnectors } from './connectors.service';
+import { createConnector, listConnectors, deleteConnector } from './connectors.service';
 import { connectorRegistry } from './connectors.registry';
 
 export const createConnectorHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -46,4 +46,24 @@ export const listConnectorsHandler = async (req: AuthenticatedRequest, res: Resp
 
 export const listConnectorDefinitions = (_req: AuthenticatedRequest, res: Response): void => {
   res.json({ connectors: connectorRegistry });
+};
+
+export const deleteConnectorHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  if (!req.user) {
+    res.status(HttpStatus.UNAUTHORIZED).json({ message: 'Unauthorized' });
+    return;
+  }
+
+  const user = await findUserById(req.user.id);
+  if (!user) {
+    res.status(HttpStatus.NOT_FOUND).json({ message: 'User not found' });
+    return;
+  }
+
+  await deleteConnector({
+    connectorId: req.params.id,
+    organizationId: user.organization.toString(),
+  });
+
+  res.status(HttpStatus.NO_CONTENT).send();
 };

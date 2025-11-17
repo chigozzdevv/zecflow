@@ -108,18 +108,25 @@ export class WorkflowEngine {
           connector,
         );
 
-        const configAlias =
-          typeof (node.data as Record<string, any>)?.alias === 'string' && (node.data as Record<string, any>).alias.length
-            ? (node.data as Record<string, any>).alias
-            : undefined;
+        const configAliases: string[] = [];
+        const nodeData = node.data as Record<string, any>;
+        const normalizedAlias = typeof nodeData?.alias === 'string' ? nodeData.alias.trim() : '';
+        if (normalizedAlias) {
+          configAliases.push(normalizedAlias);
+        }
+        const normalizedResponseAlias =
+          typeof nodeData?.responseAlias === 'string' ? nodeData.responseAlias.trim() : '';
+        if (normalizedResponseAlias) {
+          configAliases.push(normalizedResponseAlias);
+        }
 
         const storeOutputValue = (outputName: string, value: any) => {
           const keys = new Set<string>([`${nodeId}.${outputName}`]);
           if (node.alias) {
             keys.add(`${node.alias}.${outputName}`);
           }
-          if (configAlias) {
-            keys.add(`${configAlias}.${outputName}`);
+          for (const aliasName of configAliases) {
+            keys.add(`${aliasName}.${outputName}`);
           }
           for (const key of keys) {
             this.setContextValue(context, key, value);

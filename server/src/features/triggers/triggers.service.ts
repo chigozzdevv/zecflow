@@ -29,6 +29,9 @@ export const createTrigger = async (input: CreateTriggerInput) => {
     if (!connector) {
       throw new AppError('Connector not found', HttpStatus.NOT_FOUND);
     }
+    if (connector.organization.toString() !== input.organizationId) {
+      throw new AppError('Connector not found for organization', HttpStatus.NOT_FOUND);
+    }
     connector.config = decryptConnectorConfig(connector.type, connector.config as Record<string, unknown>);
   }
 
