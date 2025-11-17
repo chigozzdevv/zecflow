@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
-import { findUserById } from '@/features/users/users.service';
+import { findUserById } from '@/features/auth/auth.service';
 import { createWorkflow, listWorkflows, setWorkflowStatus } from './workflows.service';
 
 export const createWorkflowHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {

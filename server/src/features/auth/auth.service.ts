@@ -3,9 +3,34 @@ import { HttpStatus } from '@/utils/http-status';
 import { hashPassword, comparePassword } from '@/utils/password';
 import { signAccessToken, signRefreshToken } from '@/config/security';
 import { createOrganization, assignOwner } from '@/features/organizations/organizations.service';
-import { UserModel } from '@/features/users/users.model';
-import { toPublic, findUserByEmail } from '@/features/users/users.service';
+import { UserModel, UserDocument } from './auth.model';
 import { RegisterPayload, LoginPayload, AuthTokens } from './auth.types';
+
+export interface PublicUser {
+  id: string;
+  name: string;
+  email: string;
+  organization: string;
+  roles: string[];
+}
+
+const toPublicUser = (user: UserDocument): PublicUser => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  organization: user.organization.toString(),
+  roles: user.roles,
+});
+
+export const findUserByEmail = (email: string): Promise<UserDocument | null> => {
+  return UserModel.findOne({ email: email.toLowerCase() });
+};
+
+export const findUserById = (id: string): Promise<UserDocument | null> => {
+  return UserModel.findById(id);
+};
+
+export const toPublic = (user: UserDocument): PublicUser => toPublicUser(user);
 
 const issueTokens = (userId: string, roles: string[]): AuthTokens => ({
   accessToken: signAccessToken({ sub: userId, roles }),

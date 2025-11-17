@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { BlockHandlerType } from './blocks.types';
 
-type BlockCategory = 'input' | 'condition' | 'compute' | 'action' | 'storage' | 'transform';
+type BlockCategory = 'input' | 'compute' | 'action' | 'storage' | 'transform';
 
 export interface BlockDefinition {
   id: string;
@@ -57,32 +57,6 @@ export const blockRegistry: BlockDefinition[] = [
     })),
   },
   {
-    id: 'branch-gateway',
-    name: 'Branch Gateway',
-    description: 'Evaluate a condition and expose a boolean alias for branching logic',
-    category: 'condition',
-    handler: 'logic',
-    configSchema: withCondition(z.object({
-      leftPath: valuePathSchema,
-      operator: z.enum(['equals', 'not_equals', 'gt', 'lt', 'includes']),
-      rightValue: z.union([z.string(), z.number(), z.boolean()]),
-      alias: z.string().min(1),
-    })),
-  },
-  {
-    id: 'math-operation',
-    name: 'Math Operation',
-    description: 'Perform arithmetic on two numeric inputs and store the result',
-    category: 'transform',
-    handler: 'logic',
-    configSchema: withCondition(z.object({
-      leftPath: valuePathSchema,
-      rightPath: valuePathSchema,
-      operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
-      alias: z.string().min(1),
-    })),
-  },
-  {
     id: 'nillion-compute',
     name: 'Nillion Compute',
     description: 'Execute private compute workload with secret inputs',
@@ -116,7 +90,7 @@ export const blockRegistry: BlockDefinition[] = [
     category: 'compute',
     handler: 'nilai',
     configSchema: withCondition(z.object({
-      model: z.string().default('default'),
+      model: z.string().optional(),
       promptTemplate: z.string().min(1),
       alias: z.string().min(1),
     })),
@@ -132,6 +106,23 @@ export const blockRegistry: BlockDefinition[] = [
       amountPath: valuePathSchema,
       memoPath: valuePathSchema.optional(),
       fallbackAddress: z.string().optional(),
+      fromAddressPath: valuePathSchema.optional(),
+      fallbackFromAddress: z.string().optional(),
+      privacyPolicy: z
+        .enum([
+          'FullPrivacy',
+          'LegacyCompat',
+          'AllowRevealedAmounts',
+          'AllowRevealedRecipients',
+          'AllowRevealedSenders',
+          'AllowFullyTransparent',
+          'AllowLinkingAccountAddresses',
+          'NoPrivacy',
+        ])
+        .optional(),
+      minConfirmations: z.number().int().min(0).optional(),
+      fee: z.number().positive().optional(),
+      timeoutMs: z.number().int().positive().max(600_000).optional(),
     })),
   },
   {

@@ -1,4 +1,4 @@
-export type BlockHandlerType = 'logic' | 'nillion' | 'nilai' | 'zcash' | 'connector' | 'notification' | 'storage';
+export type BlockHandlerType = 'logic' | 'nillion' | 'nilai' | 'zcash' | 'connector' | 'storage';
 
 export interface BlockExecutionContext {
   payload: Record<string, unknown>;

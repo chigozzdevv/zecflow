@@ -14,8 +14,9 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@nillion/secretvaults": "^0.1.7",
+    "@nillion/nilai-ts": "^0.2.0",
     "@nillion/nuc": "^0.1.0",
+    "@nillion/secretvaults": "^0.1.7",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.63.2",

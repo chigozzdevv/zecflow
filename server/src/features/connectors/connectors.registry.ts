@@ -39,6 +39,8 @@ export const connectorRegistry: ConnectorDefinition[] = [
       address: z.string().min(1),
       viewingKey: z.string().min(1),
       label: z.string().optional(),
+      rescanMode: z.enum(['yes', 'no', 'whenkeyisnew']).default('whenkeyisnew').optional(),
+      startHeight: z.number().int().nonnegative().optional(),
     }),
     secureFields: ['viewingKey'],
   },

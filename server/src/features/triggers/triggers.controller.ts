@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
-import { findUserById } from '@/features/users/users.service';
+import { findUserById } from '@/features/auth/auth.service';
 import { createTrigger, listTriggers } from './triggers.service';
 import { triggerRegistry } from './triggers.registry';
 import { TriggerModel } from './triggers.model';

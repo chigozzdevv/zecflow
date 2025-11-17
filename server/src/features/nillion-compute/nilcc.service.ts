@@ -17,9 +17,19 @@ type CreateWorkloadInput = {
   dockerCredentials?: Array<{ server: string; username: string; password: string }>;
 };
 
+interface NilCCTier {
+  id: string;
+  cpus: number;
+  memory: number;
+  disk: number;
+  gpus: number;
+}
+
 class NilCCService {
   private client: AxiosInstance;
   private artifactsVersionCache?: { value: string; expiresAt: number };
+  private workloadTierCache?: { tiers: NilCCTier[]; expiresAt: number };
+  private readonly cacheTtlMs = 5 * 60 * 1000;
 
   constructor() {
     if (!envConfig.NILCC_API_KEY) {
@@ -78,6 +88,13 @@ class NilCCService {
         dockerCredentials: input.dockerCredentials,
       };
 
+      await this.ensureTierMatch({
+        cpus: payload.cpus,
+        memory: payload.memory,
+        disk: payload.disk,
+        gpus: payload.gpus,
+      });
+
       const { data } = await this.client.post('/api/v1/workloads/create', payload);
       const id = data?.id || data?.workloadId || data?.workload?.id;
       const publicUrl = this.extractPublicUrl(data?.workload) || this.extractPublicUrl(data);
@@ -115,6 +132,43 @@ class NilCCService {
     }
   }
 
+  private async listWorkloadTiers(): Promise<NilCCTier[]> {
+    if (this.workloadTierCache && this.workloadTierCache.expiresAt > Date.now()) {
+      return this.workloadTierCache.tiers;
+    }
+
+    try {
+      const { data } = await this.client.get('/api/v1/workload-tiers/list');
+      const tiers = (data?.tiers ?? data ?? []) as NilCCTier[];
+      this.workloadTierCache = {
+        tiers,
+        expiresAt: Date.now() + this.cacheTtlMs,
+      };
+      return tiers;
+    } catch (error: any) {
+      logger.error({ err: error }, 'Failed to list nilCC workload tiers');
+      throw new Error(`NilCC list workload tiers failed: ${error.message}`);
+    }
+  }
+
+  private async ensureTierMatch(config: { cpus: number; memory: number; disk: number; gpus?: number }): Promise<void> {
+    const tiers = await this.listWorkloadTiers();
+    const gpus = config.gpus ?? 0;
+    const match = tiers.find(
+      (tier) =>
+        Number(tier.cpus) === Number(config.cpus) &&
+        Number(tier.memory) === Number(config.memory) &&
+        Number(tier.disk) === Number(config.disk) &&
+        Number(tier.gpus ?? 0) === Number(gpus),
+    );
+
+    if (!match) {
+      throw new Error(
+        `Requested resources (cpus=${config.cpus}, memory=${config.memory}, disk=${config.disk}, gpus=${gpus}) do not match any nilCC workload tier`,
+      );
+    }
+  }
+
   async getLatestArtifactsVersion(): Promise<string> {
     const cached = this.artifactsVersionCache;
     if (cached && cached.expiresAt > Date.now()) {
@@ -131,7 +185,7 @@ class NilCCService {
 
     this.artifactsVersionCache = {
       value: version,
-      expiresAt: Date.now() + 5 * 60 * 1000,
+      expiresAt: Date.now() + this.cacheTtlMs,
     };
 
     return version;
@@ -159,6 +213,49 @@ class NilCCService {
     }
 
     return encoded;
+  }
+
+  async getAttestationReport(
+    publicUrl?: string,
+    { required = false, retries = 5 }: { required?: boolean; retries?: number } = {},
+  ): Promise<Record<string, unknown> | undefined> {
+    if (!publicUrl) {
+      return undefined;
+    }
+
+    const normalized = publicUrl.endsWith('/') ? publicUrl.slice(0, -1) : publicUrl;
+    const attestationUrl = `${normalized}/nilcc/api/v2/report`;
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const { data } = await axios.get(attestationUrl, { timeout: 10000 });
+        return data;
+      } catch (error) {
+        const isLastAttempt = attempt === retries - 1;
+        if (isLastAttempt) {
+          if (required) {
+            throw new Error(`Failed to retrieve nilCC attestation: ${(error as Error).message}`);
+          }
+          logger.warn({ err: error, attestationUrl }, 'Unable to retrieve nilCC attestation report');
+          return undefined;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    return undefined;
+  }
+
+  async deleteWorkload(workloadId: string): Promise<void> {
+    if (!workloadId) {
+      return;
+    }
+    try {
+      await this.client.post('/api/v1/workloads/delete', { workloadId });
+      logger.info({ workloadId }, 'NilCC workload deleted');
+    } catch (error: any) {
+      logger.warn({ err: error, workloadId }, 'Failed to delete nilCC workload');
+    }
   }
 }
 

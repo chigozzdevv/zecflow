@@ -1,7 +1,7 @@
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
 import { Response } from 'express';
-import { findUserById } from '@/features/users/users.service';
+import { findUserById } from '@/features/auth/auth.service';
 import { registerWorkload, listWorkloads } from './nillion-compute.service';
 
 export const registerWorkloadHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {

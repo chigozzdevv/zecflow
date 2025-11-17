@@ -1,5 +1,6 @@
 import { NillionWorkloadModel } from './nillion-compute.model';
 import { nilccService } from './nilcc.service';
+import { logger } from '@/utils/logger';
 
 interface RegisterWorkloadInput {
   name: string;
@@ -12,6 +13,7 @@ interface RegisterWorkloadInput {
 export const registerWorkload = async (input: RegisterWorkloadInput) => {
   let publicUrl: string | undefined;
   let workloadId = input.workloadId;
+  let attestation: Record<string, unknown> | undefined;
 
   // If config contains dockerCompose, create a workload via nilCC
   const cfg = (input.config || {}) as Record<string, any>;
@@ -44,6 +46,14 @@ export const registerWorkload = async (input: RegisterWorkloadInput) => {
     throw new Error('Provide a workloadId or dockerCompose config to register a nilCC workload');
   }
 
+  if (publicUrl) {
+    try {
+      attestation = await nilccService.getAttestationReport(publicUrl);
+    } catch (error) {
+      logger.warn({ err: error, workloadId }, 'Unable to fetch nilCC attestation during workload registration');
+    }
+  }
+
   return NillionWorkloadModel.create({
     name: input.name,
     workloadId: String(workloadId),
@@ -51,6 +61,7 @@ export const registerWorkload = async (input: RegisterWorkloadInput) => {
     config: input.config,
     organization: input.organizationId,
     publicUrl,
+    attestation,
   });
 };
 

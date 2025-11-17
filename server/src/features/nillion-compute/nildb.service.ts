@@ -29,7 +29,6 @@ class NilDBService {
 
       const dbs = dbNodeList.split(',').map((s) => s.trim()).filter(Boolean);
       const keypair = Keypair.from(apiKey);
-      const builderDid = keypair.toDid();
 
       const builder = await SecretVaultBuilderClient.from({
         keypair,
@@ -45,7 +44,7 @@ class NilDBService {
       } catch (profileError) {
         try {
           await builder.register({
-            did: builderDid,
+            did: keypair.toDid() as any,
             name: 'ZecFlow Builder',
           });
           logger.info('NilDB builder registered successfully');

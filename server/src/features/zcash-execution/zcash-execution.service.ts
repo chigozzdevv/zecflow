@@ -1,25 +1,23 @@
-import { zcashService } from '@/shared/services/zcash.service';
-import { ZcashJobModel } from './zcash-execution.model';
+import { zcashService, ZcashPrivacyPolicy } from '@/shared/services/zcash.service';
 
-export const sendShieldedTransfer = (address: string, amount: number, memo?: string) => {
-  return zcashService.sendShieldedTransaction(address, amount, memo);
-};
-
-interface CreateWatcherInput {
-  organizationId: string;
-  userId: string;
-  config: Record<string, unknown>;
+interface SendShieldedTransferInput {
+  address: string;
+  amount: number | string;
+  memo?: string;
+  fromAddress?: string;
+  minConfirmations?: number;
+  fee?: number;
+  privacyPolicy?: ZcashPrivacyPolicy;
+  timeoutMs?: number;
 }
 
-export const createTransactionWatcher = (input: CreateWatcherInput) => {
-  return ZcashJobModel.create({
-    type: 'transaction-monitor',
-    config: input.config,
-    organization: input.organizationId,
-    createdBy: input.userId,
+export const sendShieldedTransfer = async (input: SendShieldedTransferInput) => {
+  return zcashService.sendShieldedTransaction(input.address, input.amount, {
+    memo: input.memo,
+    fromAddress: input.fromAddress,
+    minConfirmations: input.minConfirmations,
+    fee: input.fee ?? null,
+    privacyPolicy: input.privacyPolicy,
+    timeoutMs: input.timeoutMs,
   });
-};
-
-export const listWatchers = (organizationId: string) => {
-  return ZcashJobModel.find({ organization: organizationId, type: 'transaction-monitor' }).lean();
 };

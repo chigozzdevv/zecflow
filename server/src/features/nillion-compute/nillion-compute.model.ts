@@ -7,6 +7,7 @@ export interface NillionWorkloadDocument extends Document {
   organization: Schema.Types.ObjectId;
   config: Record<string, unknown>;
   publicUrl?: string;
+  attestation?: Record<string, unknown>;
 }
 
 const workloadSchema = new Schema<NillionWorkloadDocument>(
@@ -17,6 +18,7 @@ const workloadSchema = new Schema<NillionWorkloadDocument>(
     organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
     config: { type: Schema.Types.Mixed, default: {} },
     publicUrl: { type: String },
+    attestation: { type: Schema.Types.Mixed, default: null },
   },
   { timestamps: true },
 );

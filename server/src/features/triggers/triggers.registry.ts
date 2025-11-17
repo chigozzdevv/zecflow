@@ -28,6 +28,7 @@ export const triggerRegistry: TriggerDefinition[] = [
       memoPattern: z.string().optional(),
       minAmount: z.number().nonnegative().optional(),
       address: z.string().min(1).optional(),
+      minConfirmations: z.number().int().min(0).default(1),
     }),
   },
   {

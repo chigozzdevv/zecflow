@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
-import { findUserById } from '@/features/users/users.service';
+import { findUserById } from '@/features/auth/auth.service';
 import { createBlock, listBlocksForWorkflow } from './blocks.service';
 import { blockRegistry } from './blocks.registry';
 import { nillionBlockRegistry } from './nillion-blocks.registry';

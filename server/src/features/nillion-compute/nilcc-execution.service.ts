@@ -5,18 +5,46 @@ import { dockerComposeGeneratorService } from './docker-compose-generator.servic
 import { nilccService } from './nilcc.service';
 import { logger } from '@/utils/logger';
 
+interface NilCCInvocationResult {
+  response: any;
+  attestation?: Record<string, unknown>;
+  result: any;
+}
+
+interface NilCCBlockGraphResult {
+  output: any;
+  attestation?: Record<string, unknown>;
+  result: any;
+}
+
 class NilCCExecutionService {
-  async execute(workloadId: string, payload: Record<string, unknown>, relativePath: string = '/'): Promise<any> {
+  async execute(
+    workloadId: string,
+    payload: Record<string, unknown>,
+    relativePath: string = '/',
+  ): Promise<NilCCInvocationResult> {
     const rec = await NillionWorkloadModel.findOne({ workloadId }).lean();
     if (!rec || !rec.publicUrl) {
       throw new Error(`NilCC workload ${workloadId} not found or missing publicUrl`);
     }
+
+    const attestation = await nilccService.getAttestationReport(rec.publicUrl, { required: true });
     const url = new URL(relativePath || '/', rec.publicUrl).toString();
     const { data } = await axios.post(url, payload, { timeout: 30000 });
-    return data;
+    return {
+      response: data,
+      attestation,
+      result: data,
+    };
   }
 
-  async executeBlockGraph(graph: NillionBlockGraph, inputs: Record<string, any>, workflowRunId: string): Promise<any> {
+  async executeBlockGraph(
+    graph: NillionBlockGraph,
+    inputs: Record<string, any>,
+    workflowRunId: string,
+  ): Promise<NilCCBlockGraphResult> {
+    let createdWorkloadId: string | null = null;
+    let createdWorkloadUrl: string | undefined;
     try {
       logger.info({ workflowRunId, nodeCount: graph.nodes.length }, 'Executing nillion block graph');
 
@@ -45,15 +73,30 @@ class NilCCExecutionService {
         files,
       });
 
+      createdWorkloadId = workloadResult.id;
+      createdWorkloadUrl = workloadResult.publicUrl;
+
       logger.info({ workloadId: workloadResult.id, publicUrl: workloadResult.publicUrl }, 'Nillion compute workload created');
 
       const output = await this.pollForOutput(workloadResult.id, workloadResult.publicUrl);
+      const attestation = await nilccService.getAttestationReport(workloadResult.publicUrl);
 
       logger.info({ workloadId: workloadResult.id }, 'Nillion block graph execution completed');
-      return output;
+      return {
+        output,
+        attestation,
+        result: output,
+      };
     } catch (error: any) {
       logger.error({ err: error, workflowRunId }, 'Failed to execute nillion block graph');
       throw new Error(`Nillion block graph execution failed: ${error.message}`);
+    } finally {
+      if (createdWorkloadId) {
+        await nilccService.deleteWorkload(createdWorkloadId);
+        if (createdWorkloadUrl) {
+          logger.info({ workloadId: createdWorkloadId, publicUrl: createdWorkloadUrl }, 'Nillion compute workload torn down');
+        }
+      }
     }
   }
 

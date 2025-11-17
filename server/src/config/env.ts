@@ -23,10 +23,25 @@ const envSchema = z.object({
 
   NILAI_API_KEY: z.string().optional(),
   NILAI_BASE_URL: z.string().url().optional(),
+  NILAI_NILAUTH_INSTANCE: z.enum(['sandbox', 'production']).default('sandbox'),
 
   ZCASH_RPC_URL: z.string().url(),
   ZCASH_RPC_USER: z.string().optional(),
   ZCASH_RPC_PASSWORD: z.string().optional(),
+  ZCASH_DEFAULT_FROM_ADDRESS: z.string().optional(),
+  ZCASH_DEFAULT_PRIVACY_POLICY: z
+    .enum([
+      'FullPrivacy',
+      'LegacyCompat',
+      'AllowRevealedAmounts',
+      'AllowRevealedRecipients',
+      'AllowRevealedSenders',
+      'AllowFullyTransparent',
+      'AllowLinkingAccountAddresses',
+      'NoPrivacy',
+    ])
+    .optional(),
+  ZCASH_OPERATION_TIMEOUT_MS: z.coerce.number().default(120_000),
   QUEUE_REDIS_URL: z.string().url().optional(),
   PUBLIC_URL: z.string().url(),
   ENCRYPTION_KEY: z.string().min(16),

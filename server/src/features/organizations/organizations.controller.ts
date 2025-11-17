@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '@/shared/middlewares/auth.middleware';
 import { HttpStatus } from '@/utils/http-status';
 import { getOrganizationById } from './organizations.service';
-import { findUserById } from '@/features/users/users.service';
+import { findUserById } from '@/features/auth/auth.service';
 
 export const getOrganization = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   if (!req.user) {

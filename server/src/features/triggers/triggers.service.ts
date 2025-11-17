@@ -39,6 +39,9 @@ export const createTrigger = async (input: CreateTriggerInput) => {
     throw new AppError('Custom HTTP poll trigger requires connector', HttpStatus.BAD_REQUEST);
   }
   if (definition.id === 'zcash-transaction') {
+    if (connector && connector.type !== 'zcash-viewkey') {
+      throw new AppError('Zcash trigger requires a Zcash viewing key connector', HttpStatus.BAD_REQUEST);
+    }
     if (!parsedConfig.address && connector) {
       parsedConfig.address = (connector.config as Record<string, unknown>).address;
     }

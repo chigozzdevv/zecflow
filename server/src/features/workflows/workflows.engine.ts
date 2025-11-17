@@ -8,9 +8,11 @@ import { getBlockDefinition } from '@/features/blocks/blocks.registry';
 import { nilccExecutionService } from '@/features/nillion-compute/nilcc-execution.service';
 import { nilaiService } from '@/features/nillion-compute/nilai.service';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
-import { zcashService } from '@/shared/services/zcash.service';
+import { zcashService, ZcashPrivacyPolicy } from '@/shared/services/zcash.service';
 import { logger } from '@/utils/logger';
 import { WorkflowGraph, WorkflowNode, ExecutionContext, ExecutionStep, ExecutionResult } from './workflows.types';
+
+type NilAIBlockResult = Awaited<ReturnType<typeof nilaiService.runInference>>;
 
 type MemoryMap = Record<string, unknown>;
 
@@ -75,7 +77,10 @@ export class WorkflowEngine {
       const fieldName = inputNode.data?.fieldName || inputNode.alias || 'value';
       const value = this.getNestedValue(payload, fieldName);
       const key = `${inputNode.id}.value`;
-      context.values.set(key, value);
+      this.setContextValue(context, key, value);
+      if (inputNode.alias) {
+        this.setContextValue(context, `${inputNode.alias}.value`, value);
+      }
     }
 
     for (const nodeId of executionOrder) {
@@ -103,12 +108,31 @@ export class WorkflowEngine {
           connector,
         );
 
-        if (result && typeof result === 'object') {
-          for (const [outputName, value] of Object.entries(result)) {
-            context.values.set(`${nodeId}.${outputName}`, value);
+        const configAlias =
+          typeof (node.data as Record<string, any>)?.alias === 'string' && (node.data as Record<string, any>).alias.length
+            ? (node.data as Record<string, any>).alias
+            : undefined;
+
+        const storeOutputValue = (outputName: string, value: any) => {
+          const keys = new Set<string>([`${nodeId}.${outputName}`]);
+          if (node.alias) {
+            keys.add(`${node.alias}.${outputName}`);
           }
+          if (configAlias) {
+            keys.add(`${configAlias}.${outputName}`);
+          }
+          for (const key of keys) {
+            this.setContextValue(context, key, value);
+          }
+        };
+
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+          for (const [outputName, value] of Object.entries(result)) {
+            storeOutputValue(outputName, value);
+          }
+          storeOutputValue('result', result);
         } else {
-          context.values.set(`${nodeId}.result`, result);
+          storeOutputValue('result', result);
         }
 
         executionSteps.push({
@@ -208,43 +232,6 @@ export class WorkflowEngine {
       }, {});
     }
 
-    if (blockId === 'branch-gateway') {
-      const left = this.getValueFromContext(context, data.leftPath as string);
-      const operator = data.operator as string;
-      const right = data.rightValue;
-      switch (operator) {
-        case 'equals':
-          return left === right;
-        case 'not_equals':
-          return left !== right;
-        case 'gt':
-          return Number(left) > Number(right);
-        case 'lt':
-          return Number(left) < Number(right);
-        case 'includes':
-          return typeof left === 'string' && typeof right === 'string' && left.includes(right);
-        default:
-          throw new Error(`Unsupported operator ${operator}`);
-      }
-    }
-
-    if (blockId === 'math-operation') {
-      const left = Number(this.getValueFromContext(context, data.leftPath as string));
-      const right = Number(this.getValueFromContext(context, data.rightPath as string));
-      switch (data.operation) {
-        case 'add':
-          return left + right;
-        case 'subtract':
-          return left - right;
-        case 'multiply':
-          return left * right;
-        case 'divide':
-          return right !== 0 ? left / right : 0;
-        default:
-          throw new Error(`Unsupported math operation ${data.operation}`);
-      }
-    }
-
     throw new Error(`Unknown logic block ${blockId}`);
   }
 
@@ -303,7 +290,7 @@ export class WorkflowEngine {
   private async executeNilAIBlock(
     data: Record<string, any>,
     context: { payload: Record<string, unknown>; memory: MemoryMap },
-  ): Promise<string> {
+  ): Promise<NilAIBlockResult> {
     const template = data.promptTemplate as string;
     const rendered = template.replace(/{{(.*?)}}/g, (_match, path: string) => {
       const value = this.getValueFromContext(context, path.trim());
@@ -315,18 +302,34 @@ export class WorkflowEngine {
   private async executeZcashBlock(
     data: Record<string, any>,
     context: { payload: Record<string, unknown>; memory: MemoryMap },
-  ): Promise<string> {
-    const amount = Number(this.getValueFromContext(context, data.amountPath as string));
+  ): Promise<{ txId: string; operationId: string }> {
+    const amount = this.getValueFromContext(context, data.amountPath as string);
     const addressPath = data.addressPath as string | undefined;
     const memoPath = data.memoPath as string | undefined;
+    const fromAddressPath = data.fromAddressPath as string | undefined;
     const address = addressPath
       ? (this.getValueFromContext(context, addressPath) as string)
       : (data.fallbackAddress as string);
+    const fromAddress = fromAddressPath
+      ? (this.getValueFromContext(context, fromAddressPath) as string)
+      : (data.fallbackFromAddress as string | undefined);
     const memo = memoPath ? (this.getValueFromContext(context, memoPath) as string) : undefined;
-    if (!address || Number.isNaN(amount)) {
+    if (!address || amount === undefined) {
       throw new Error('Zcash block missing address or amount');
     }
-    return zcashService.sendShieldedTransaction(address, amount, memo);
+    const privacyPolicy = (data.privacyPolicy as ZcashPrivacyPolicy | undefined) ?? undefined;
+    const minConfirmations = data.minConfirmations as number | undefined;
+    const fee = data.fee as number | undefined;
+    const timeoutMs = data.timeoutMs as number | undefined;
+
+    return zcashService.sendShieldedTransaction(address, amount as number | string, {
+      memo,
+      fromAddress,
+      minConfirmations,
+      fee: fee ?? null,
+      privacyPolicy,
+      timeoutMs,
+    });
   }
 
   private async executeConnectorBlock(
@@ -470,6 +473,39 @@ export class WorkflowEngine {
         throw new Error(`Edge references unknown target node: ${edge.target}`);
       }
     }
+  }
+
+  private setContextValue(context: ExecutionContext, key: string, value: any): void {
+    context.values.set(key, value);
+    const segments = key.split('.');
+    if (segments.length <= 1) {
+      return;
+    }
+
+    const rootKey = segments[0];
+    const nestedPath = segments.slice(1);
+    const existingRoot = context.values.get(rootKey);
+    const rootObject =
+      existingRoot && typeof existingRoot === 'object' && !Array.isArray(existingRoot)
+        ? { ...(existingRoot as Record<string, unknown>) }
+        : {};
+    this.assignNestedValue(rootObject, nestedPath, value);
+    context.values.set(rootKey, rootObject);
+  }
+
+  private assignNestedValue(target: Record<string, any>, path: string[], value: any): void {
+    let current = target;
+    for (let i = 0; i < path.length - 1; i += 1) {
+      const segment = path[i];
+      const existing = current[segment];
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+        current[segment] = { ...existing };
+      } else {
+        current[segment] = {};
+      }
+      current = current[segment];
+    }
+    current[path[path.length - 1]] = value;
   }
 
   private getValueFromContext(context: { payload: Record<string, unknown>; memory: MemoryMap }, path?: string) {
