@@ -3,6 +3,7 @@ import { getBlockDefinition } from './blocks.registry';
 import { AppError } from '@/shared/errors/app-error';
 import { HttpStatus } from '@/utils/http-status';
 import { ConnectorModel } from '@/features/connectors/connectors.model';
+import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { Types } from 'mongoose';
 
 interface CreateBlockInput {
@@ -18,6 +19,11 @@ interface CreateBlockInput {
 }
 
 export const createBlock = async (input: CreateBlockInput) => {
+  const workflow = await WorkflowModel.findById(input.workflowId);
+  if (!workflow || workflow.organization.toString() !== input.organizationId) {
+    throw new AppError('Workflow not found', HttpStatus.NOT_FOUND);
+  }
+
   const definition = getBlockDefinition(input.type);
   if (!definition) {
     throw new AppError('Unknown block type', HttpStatus.BAD_REQUEST);

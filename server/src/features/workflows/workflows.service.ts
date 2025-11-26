@@ -2,7 +2,10 @@ import { WorkflowModel } from './workflows.model';
 import { WorkflowStatus } from './workflows.types';
 import { AppError } from '@/shared/errors/app-error';
 import { HttpStatus } from '@/utils/http-status';
-import { registerWorkflowSchedule, unregisterWorkflowSchedule } from '@/features/triggers/trigger-runner';
+import { registerWorkflowSchedule, unregisterWorkflowSchedule } from '@/features/jobs/schedule-runner';
+import { TriggerModel } from '@/features/triggers/triggers.model';
+import { BlockModel } from '@/features/blocks/blocks.model';
+import { RunModel } from '@/features/runs/runs.model';
 
 interface CreateWorkflowInput {
   name: string;
@@ -11,7 +14,14 @@ interface CreateWorkflowInput {
   triggerId?: string;
 }
 
-export const createWorkflow = (input: CreateWorkflowInput) => {
+export const createWorkflow = async (input: CreateWorkflowInput) => {
+  if (input.triggerId) {
+    const trigger = await TriggerModel.findById(input.triggerId);
+    if (!trigger || trigger.organization.toString() !== input.organizationId) {
+      throw new AppError('Trigger not found', HttpStatus.NOT_FOUND);
+    }
+  }
+
   return WorkflowModel.create({
     name: input.name,
     description: input.description,
@@ -51,5 +61,9 @@ export const deleteWorkflow = async (workflowId: string, organizationId: string)
   }
 
   unregisterWorkflowSchedule(workflow.id);
+
+  await BlockModel.deleteMany({ workflow: workflowId });
+  await RunModel.deleteMany({ workflow: workflowId });
+
   await WorkflowModel.deleteOne({ _id: workflowId });
 };

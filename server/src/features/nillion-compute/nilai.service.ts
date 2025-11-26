@@ -2,7 +2,13 @@ import axios from 'axios';
 import { envConfig } from '@/config/env';
 import { logger } from '@/utils/logger';
 
-type NilAIModel = 'google/gemma-3-27b-it' | 'openai/gpt-oss-20b' | 'meta-llama/Llama-3.1-8B-Instruct';
+const AVAILABLE_MODELS = [
+  'google/gemma-3-27b-it',
+  'openai/gpt-oss-20b',
+  'meta-llama/Llama-3.1-8B-Instruct',
+] as const;
+
+type NilAIModel = (typeof AVAILABLE_MODELS)[number];
 type NilaiModule = {
   NilaiOpenAIClient: new (...args: any[]) => any;
   NilAuthInstance: { SANDBOX: string; PRODUCTION: string };
@@ -99,10 +105,13 @@ class NilAIService {
       return this.attestationCache.value;
     }
 
-    const trimmedBase = envConfig.NILAI_BASE_URL.endsWith('/')
+    let trimmedBase = envConfig.NILAI_BASE_URL.endsWith('/')
       ? envConfig.NILAI_BASE_URL.slice(0, -1)
       : envConfig.NILAI_BASE_URL;
-    const attestationUrl = `${trimmedBase}/attestation/report`;
+    if (trimmedBase.endsWith('/v1')) {
+      trimmedBase = trimmedBase.slice(0, -3);
+    }
+    const attestationUrl = `${trimmedBase}/v1/attestation/report`;
 
     try {
       const { data } = await axios.get(attestationUrl, {
@@ -121,10 +130,15 @@ class NilAIService {
   }
 
   async runInference(prompt: string, model?: NilAIModel): Promise<NilAIResult> {
+    const selectedModel = model || this.defaultModel;
+    if (!AVAILABLE_MODELS.includes(selectedModel as any)) {
+      throw new Error(`Invalid model: ${selectedModel}. Available: ${AVAILABLE_MODELS.join(', ')}`);
+    }
+
     try {
       const client = await this.ensureClient();
       const rawResponse: any = await client.chat.completions.create({
-        model: model || this.defaultModel,
+        model: selectedModel,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 2048,
         temperature: 0.7,

@@ -157,13 +157,15 @@ export const blockRegistry: BlockDefinition[] = [
   {
     id: 'state-store',
     name: 'State Store',
-    description: 'Persist state to Nillion storage collection',
+    description: 'Persist state to Nillion storage collection with encryption',
     category: 'storage',
     handler: 'nillion',
     configSchema: withCondition(z.object({
       collectionId: z.string().min(1),
       keyPath: z.string().optional(),
       dataPath: z.string().optional(),
+      encryptFields: z.array(z.string()).optional(),
+      encryptAll: z.boolean().default(true),
       alias: z.string().optional(),
     })),
   },

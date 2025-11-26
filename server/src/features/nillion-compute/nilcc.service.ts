@@ -38,7 +38,11 @@ class NilCCService {
 
     this.client = axios.create({
       baseURL: envConfig.NILCC_BASE_URL,
-      headers: envConfig.NILCC_API_KEY ? { 'x-api-key': envConfig.NILCC_API_KEY } : {},
+      headers: {
+        ...(envConfig.NILCC_API_KEY ? { 'x-api-key': envConfig.NILCC_API_KEY } : {}),
+        'Content-Type': 'application/json',
+        'accept': 'application/json',
+      },
       timeout: 30000,
     });
 
@@ -76,8 +80,8 @@ class NilCCService {
       const payload = {
         name: input.name,
         dockerCompose: input.dockerCompose,
-        serviceToExpose: input.publicContainerName,
-        servicePortToExpose: input.publicContainerPort,
+        publicContainerName: input.publicContainerName,
+        publicContainerPort: input.publicContainerPort,
         cpus: input.cpus,
         memory: input.memory,
         disk: input.disk,
@@ -132,7 +136,7 @@ class NilCCService {
     }
   }
 
-  private async listWorkloadTiers(): Promise<NilCCTier[]> {
+  async listWorkloadTiers(): Promise<NilCCTier[]> {
     if (this.workloadTierCache && this.workloadTierCache.expiresAt > Date.now()) {
       return this.workloadTierCache.tiers;
     }

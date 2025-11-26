@@ -98,6 +98,11 @@ export const triggerWebhookHandler = async (req: Request, res: Response): Promis
     return;
   }
 
+  if (trigger.status !== 'active') {
+    res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ message: 'Trigger is disabled' });
+    return;
+  }
+
   const connector = trigger.connector
     ? await ConnectorModel.findById(trigger.connector).then((doc) => {
         if (!doc) {

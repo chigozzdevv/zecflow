@@ -61,14 +61,21 @@ class NilCCExecutionService {
         'input.json': JSON.stringify(inputs),
       };
 
+      const tiers = await nilccService.listWorkloadTiers();
+      const tier = tiers[0];
+      if (!tier) {
+        throw new Error('No available nilCC workload tiers');
+      }
+
       const workloadResult = await nilccService.createWorkload({
         name: workloadName,
         dockerCompose: composeYaml,
         publicContainerName: 'compute',
         publicContainerPort: 3000,
-        cpus: 1,
-        memory: 512,
-        disk: 1024,
+        cpus: tier.cpus,
+        memory: tier.memory,
+        disk: tier.disk,
+        gpus: tier.gpus,
         artifactsVersion: artifactsVersion,
         files,
       });
@@ -107,8 +114,8 @@ services:
     image: node:18-alpine
     working_dir: /app
     volumes:
-      - "$FILES/workflow.js:/app/workflow.js:ro"
-      - "$FILES/input.json:/app/input.json:ro"
+      - "\${FILES}/workflow.js:/app/workflow.js:ro"
+      - "\${FILES}/input.json:/app/input.json:ro"
     command: |
       sh -c "
         node workflow.js

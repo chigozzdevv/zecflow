@@ -1,6 +1,6 @@
 import cron, { ScheduledTask } from 'node-cron';
 import { WorkflowModel } from '@/features/workflows/workflows.model';
-import { TriggerModel } from './triggers.model';
+import { TriggerModel } from '@/features/triggers/triggers.model';
 import { logger } from '@/utils/logger';
 import { createRun } from '@/features/runs/runs.service';
 

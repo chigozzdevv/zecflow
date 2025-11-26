@@ -46,6 +46,8 @@ export const triggerRegistry: TriggerDefinition[] = [
     configSchema: z.object({
       handle: z.string().min(1),
       filter: z.string().optional(),
+      eventType: z.enum(['posts', 'mentions', 'all']).default('all'),
+      pollIntervalSec: z.number().int().min(30).default(60),
     }),
   },
   {

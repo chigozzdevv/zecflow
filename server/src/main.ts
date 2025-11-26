@@ -3,9 +3,10 @@ import app from '@/app';
 import { envConfig } from '@/config/env';
 import { connectMongo } from '@/config/mongo';
 import { logger } from '@/utils/logger';
-import { initializeTriggerSchedules } from '@/features/triggers/trigger-runner';
+import { initializeTriggerSchedules } from '@/features/jobs/schedule-runner';
 import { startZcashWatcher } from '@/features/zcash-execution/zcash-watcher';
-import { startCustomPollRunner } from '@/features/triggers/custom-poll-runner';
+import { startCustomPollRunner } from '@/features/jobs/custom-poll-runner';
+import { startTwitterPollRunner } from '@/features/jobs/twitter-poll-runner';
 import { startRunWorker } from '@/queues/run-queue';
 
 const server = http.createServer(app);
@@ -16,6 +17,7 @@ const start = async (): Promise<void> => {
     await initializeTriggerSchedules();
     startZcashWatcher();
     startCustomPollRunner();
+    startTwitterPollRunner();
     startRunWorker();
     server.listen(envConfig.PORT, () => {
       logger.info(`Server running on port ${envConfig.PORT}`);

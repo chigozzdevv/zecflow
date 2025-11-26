@@ -8,6 +8,7 @@ import workflowsRouter from '@/features/workflows/workflows.route';
 import runsRouter from '@/features/runs/runs.route';
 import nillionRouter from '@/features/nillion-compute/nillion-compute.route';
 import zcashRouter from '@/features/zcash-execution/zcash-execution.route';
+import billingRouter from '@/features/billing/billing.route';
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use('/workflows', workflowsRouter);
 router.use('/runs', runsRouter);
 router.use('/nillion', nillionRouter);
 router.use('/zcash', zcashRouter);
+router.use('/billing', billingRouter);
 
 export default router;

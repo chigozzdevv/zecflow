@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Types } from 'mongoose';
-import { WorkflowModel } from './workflows.model';
+import { WorkflowModel, WorkflowDocument } from './workflows.model';
 import { RunModel } from '@/features/runs/runs.model';
 import { ConnectorModel } from '@/features/connectors/connectors.model';
 import { decryptConnectorConfig } from '@/features/connectors/connectors.security';
@@ -9,6 +9,7 @@ import { nilccExecutionService } from '@/features/nillion-compute/nilcc-executio
 import { nilaiService } from '@/features/nillion-compute/nilai.service';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { zcashService, ZcashPrivacyPolicy } from '@/shared/services/zcash.service';
+import { billingService } from '@/features/billing/billing.service';
 import { logger } from '@/utils/logger';
 import { WorkflowGraph, WorkflowNode, ExecutionContext, ExecutionStep, ExecutionResult } from './workflows.types';
 
@@ -32,8 +33,11 @@ export class WorkflowEngine {
     run.status = 'running';
     await run.save();
 
+    let workflow: WorkflowDocument | null = null;
+    let totalCost = 0;
+
     try {
-      const workflow = await WorkflowModel.findById(run.workflow);
+      workflow = await WorkflowModel.findById(run.workflow);
       if (!workflow) {
         throw new Error('Workflow missing');
       }
@@ -42,10 +46,33 @@ export class WorkflowEngine {
         throw new Error('Workflow graph is empty or missing');
       }
 
+      // Calculate cost and check credits before execution
+      const organizationId = workflow.organization.toString();
+      totalCost = this.calculateWorkflowCost(workflow.graph);
+      
+      const creditCheck = await billingService.preflightCreditCheck(organizationId, totalCost);
+      if (!creditCheck.hasEnough) {
+        throw new Error(
+          `Insufficient credits. Required: ${creditCheck.required}, Available: ${creditCheck.available}. ` +
+          `Please add more credits to continue.`
+        );
+      }
+
       const result = await this.executeGraph(workflow.graph, run.payload, runId);
 
+      // Deduct credits after successful execution
+      await billingService.deductCredits(
+        organizationId,
+        totalCost,
+        `Workflow run: ${workflow.name} (${runId})`
+      );
+
       run.status = 'succeeded';
-      run.result = { outputs: result.outputs, steps: result.steps };
+      run.result = {
+        outputs: result.outputs,
+        steps: result.steps,
+        creditsUsed: totalCost,
+      };
       await run.save();
     } catch (error) {
       logger.error({ err: error, runId }, 'Workflow execution failed');
@@ -53,6 +80,45 @@ export class WorkflowEngine {
       run.result = { error: (error as Error).message };
       await run.save();
     }
+  }
+
+  /**
+   * Calculate the total credit cost for a workflow based on its blocks
+   */
+  private calculateWorkflowCost(graph: WorkflowGraph): number {
+    let cost = billingService.getCreditCost('workflow-run'); // Base cost for running a workflow
+
+    for (const node of graph.nodes) {
+      // Skip input/output nodes - they don't cost anything
+      if (node.type === 'input' || node.type === 'output') {
+        continue;
+      }
+
+      const blockId = node.blockId;
+      if (!blockId) continue;
+
+      // Map block IDs to operation types for billing
+      if (blockId === 'nillion-compute') {
+        cost += billingService.getCreditCost('nillion-compute');
+      } else if (blockId === 'nillion-block-graph') {
+        cost += billingService.getCreditCost('nillion-block-graph');
+      } else if (blockId === 'nilai-llm') {
+        cost += billingService.getCreditCost('nilai-llm');
+      } else if (blockId === 'state-store') {
+        cost += billingService.getCreditCost('state-store');
+      } else if (blockId === 'state-read') {
+        cost += billingService.getCreditCost('state-read');
+      } else if (blockId === 'zcash-send') {
+        cost += billingService.getCreditCost('zcash-send');
+      } else if (blockId === 'connector-request') {
+        cost += billingService.getCreditCost('connector-request');
+      } else if (blockId === 'custom-http-action') {
+        cost += billingService.getCreditCost('custom-http-action');
+      }
+      // Logic blocks (payload-input, json-extract, memo-parser) are free
+    }
+
+    return cost;
   }
 
   private async executeGraph(
@@ -281,8 +347,16 @@ export class WorkflowEngine {
       const dataToStore = data.dataPath ? this.getValueFromContext(context, data.dataPath as string) : context.payload;
       const key = data.keyPath ? this.getValueFromContext(context, data.keyPath as string) : 'default';
       const keyStr = typeof key === 'string' && key.length ? key : 'default';
-      await nildbService.putDocument(data.collectionId as string, keyStr, (dataToStore ?? {}) as Record<string, unknown>);
-      return { stored: true };
+      const encryptFields = data.encryptFields as string[] | undefined;
+      const encryptAll = data.encryptAll !== false;
+      await nildbService.putDocument(
+        data.collectionId as string,
+        keyStr,
+        (dataToStore ?? {}) as Record<string, unknown>,
+        undefined,
+        { encryptFields: encryptAll && !encryptFields ? undefined : encryptFields },
+      );
+      return { stored: true, encrypted: encryptAll || (encryptFields && encryptFields.length > 0) };
     }
 
     if (blockId === 'state-read') {

@@ -17,12 +17,12 @@ const envSchema = z.object({
 
   NILDB_ENABLED: z.coerce.boolean().default(true),
   NILLION_API_KEY: z.string().optional(),
-  NILCHAIN_URL: z.string().url().optional(),
-  NILAUTH_URL: z.string().url().optional(),
-  NILDB_NODES: z.string().optional(),
+  NILCHAIN_URL: z.string().url().default('http://rpc.testnet.nilchain-rpc-proxy.nilogy.xyz'),
+  NILAUTH_URL: z.string().url().default('https://nilauth.sandbox.app-cluster.sandbox.nilogy.xyz'),
+  NILDB_NODES: z.string().default('https://nildb-stg-n1.nillion.network,https://nildb-stg-n2.nillion.network,https://nildb-stg-n3.nillion.network'),
 
   NILAI_API_KEY: z.string().optional(),
-  NILAI_BASE_URL: z.string().url().optional(),
+  NILAI_BASE_URL: z.string().url().default('https://nilai-a779.nillion.network/v1'),
   NILAI_NILAUTH_INSTANCE: z.enum(['sandbox', 'production']).default('sandbox'),
 
   ZCASH_RPC_URL: z.string().url(),

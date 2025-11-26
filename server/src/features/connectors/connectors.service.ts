@@ -79,10 +79,5 @@ export const deleteConnector = async (input: DeleteConnectorInput): Promise<void
     throw new AppError('Connector is referenced by blocks', HttpStatus.BAD_REQUEST);
   }
 
-  const triggerUsage = await TriggerModel.countDocuments({ connector: connector._id });
-  if (triggerUsage > 0) {
-    throw new AppError('Connector is referenced by triggers', HttpStatus.BAD_REQUEST);
-  }
-
   await connector.deleteOne();
 };
