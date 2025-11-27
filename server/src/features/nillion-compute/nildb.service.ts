@@ -24,7 +24,7 @@ class NilDBService {
     const dbNodeList = NILDB_NODES;
 
     this.builderPromise = (async () => {
-      const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
+      const { SecretVaultBuilderClient, Did } = await import('@nillion/secretvaults');
       const { Keypair } = await import('@nillion/nuc');
 
       const dbs = dbNodeList.split(',').map((s) => s.trim()).filter(Boolean);
@@ -43,9 +43,9 @@ class NilDBService {
         logger.info({ name: existingProfile.data.name }, 'NilDB builder already registered');
       } catch (profileError) {
         try {
-          const did = keypair.toDid();
+          const didString = keypair.toDid().toString();
           await builder.register({
-            did: did as any,
+            did: Did.parse(didString),
             name: 'ZecFlow Builder',
           });
           logger.info('NilDB builder registered successfully');
