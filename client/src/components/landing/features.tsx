@@ -2,33 +2,33 @@ import { Activity, Lock, Network, ShieldCheck, Workflow, Zap } from "lucide-reac
 
 const features = [
   {
-    name: "Visual Workflow Builder",
-    description: "Drag and drop blocks to create complex automation flows. No coding required for basic logic.",
-    icon: Workflow,
-  },
-  {
-    name: "Private Transactions",
-    description: "Native integration with Zcash for shielded transactions. Keep your financial data private.",
+    name: "Shielded Zcash transfers",
+    description: "Send shielded ZEC as part of a workflow using our Zcash transfer blocks.",
     icon: Lock,
   },
   {
-    name: "Secure Computation",
-    description: "Leverage Nillion's blind computation to process sensitive data without exposing it.",
+    name: "Private Nillion compute",
+    description: "Use Nillion compute and storage blocks to process and persist sensitive data privately.",
     icon: ShieldCheck,
   },
   {
-    name: "Event-Driven Triggers",
-    description: "Trigger workflows from on-chain events, webhooks, or scheduled timers.",
+    name: "Event-driven triggers",
+    description: "Kick off workflows from webhooks, Zcash transactions, schedules, Twitter, GitHub, or HTTP polls.",
     icon: Zap,
   },
   {
-    name: "Multi-Chain Support",
-    description: "Connect to multiple blockchains and orchestrate cross-chain operations seamlessly.",
+    name: "Encrypted state storage",
+    description: "Store and read encrypted workflow state using Nillion-backed storage collections.",
     icon: Network,
   },
   {
-    name: "Real-time Monitoring",
-    description: "Track workflow execution in real-time with detailed logs and analytics.",
+    name: "HTTP and connector actions",
+    description: "Call GitHub, custom HTTP APIs, and other services directly from your workflows.",
+    icon: Workflow,
+  },
+  {
+    name: "Run history APIs",
+    description: "Inspect workflow runs and outputs via APIs so you can build your own monitoring views.",
     icon: Activity,
   },
 ];
@@ -38,13 +38,13 @@ export function Features() {
     <div id="features" className="bg-black py-24 sm:py-32">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="mx-auto max-w-2xl lg:text-center">
-          <h2 className="text-base font-semibold leading-7 text-[#6758c1]">Powerful Capabilities</h2>
+          <h2 className="text-base font-semibold leading-7 text-[#6758c1]">Core capabilities</h2>
           <p className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Everything you need to build private dApps
+            Private automation on Zcash and Nillion
           </p>
           <p className="mt-6 text-lg leading-8 text-zinc-400">
-            ZecFlow combines the best of privacy technology with ease of use.
-            Build robust applications without compromising on security or user privacy.
+            ZecFlow blends shielded Zcash transfers, Nillion compute, and event-driven triggers so you can
+            orchestrate private workflows end to end.
           </p>
         </div>
         <div className="mx-auto mt-16 max-w-2xl sm:mt-20 lg:mt-24 lg:max-w-none">

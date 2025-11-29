@@ -9,6 +9,7 @@ export const CREDIT_COSTS: Record<CreditOperation, number> = {
   'workflow-run': 1,
   'nillion-compute': 5,
   'nillion-block-graph': 3,
+  'nillion-math-logic': 1,
   'nilai-llm': 10,
   'state-store': 1,
   'state-read': 1,

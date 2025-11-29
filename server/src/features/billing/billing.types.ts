@@ -2,6 +2,7 @@ export type CreditOperation =
   | 'workflow-run'
   | 'nillion-compute'
   | 'nillion-block-graph'
+  | 'nillion-math-logic'
   | 'nilai-llm'
   | 'state-store'
   | 'state-read'

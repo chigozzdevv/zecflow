@@ -1,6 +1,5 @@
 import { motion } from "framer-motion";
 import {
-  ArrowRight,
   Calendar,
   CheckCircle2,
   Code2,
@@ -76,8 +75,18 @@ export function HowItWorks() {
   }, []);
 
   return (
-    <section id="how-it-works" className="bg-black py-16 sm:py-20">
-      <div className="mx-auto max-w-7xl px-6 lg:px-8">
+    <section id="how-it-works" className="relative py-16 sm:py-20 overflow-hidden">
+      {/* Section Divider - Top */}
+      <div className="absolute top-0 left-0 right-0 h-px">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#6758c1]/30 to-transparent" />
+      </div>
+
+      {/* Section Divider - Bottom */}
+      <div className="absolute bottom-0 left-0 right-0 h-px">
+        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#6758c1]/30 to-transparent" />
+      </div>
+      
+      <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-10">
           <h2 className="text-base font-semibold text-[#6758c1] mb-2">
@@ -92,10 +101,10 @@ export function HowItWorks() {
         </div>
 
         {/* Main Content - Two Column Layout */}
-        <div className="grid lg:grid-cols-[260px_1fr] gap-8 items-start">
+        <div className="grid gap-8 items-stretch lg:grid-cols-[260px_1fr]">
           
           {/* Left Column - Triggers */}
-          <div className="bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5">
+          <div className="bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 flex flex-col">
             <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">
               Available Triggers
             </h3>
@@ -145,15 +154,15 @@ export function HowItWorks() {
           </div>
 
           {/* Right Column - Pipeline */}
-          <div className="bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5">
+          <div className="bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 flex flex-col">
             <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-4">
               Execution Pipeline
             </h3>
             
             {/* Horizontal Stepper */}
-            <div className="relative py-2">
+            <div className="relative py-2 overflow-x-auto">
               {/* Steps */}
-              <div className="relative flex justify-between">
+              <div className="relative flex justify-between min-w-[520px] pr-4">
                 {steps.map((step, index) => {
                   const isActive = activeStep === index;
                   const isCompleted = activeStep > index;
@@ -271,7 +280,7 @@ export function HowItWorks() {
                     {activeStep === 0 &&
                       `Your workflow is triggered by a ${triggers[activeTrigger].name.toLowerCase()} event. The system captures the incoming data and prepares it for processing.`}
                     {activeStep === 1 &&
-                      "The incoming payload is validated against your defined schema. Authentication and authorization checks ensure only legitimate requests proceed."}
+                      "The incoming payload is validated using our schemas and your trigger and block configuration. Authentication and authorization checks ensure only legitimate requests proceed."}
                     {activeStep === 2 &&
                       "Sensitive data is processed using Nillion's blind computation. Your data remains encrypted and private throughout the entire computation."}
                     {activeStep === 3 &&

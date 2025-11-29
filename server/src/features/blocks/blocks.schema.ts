@@ -12,3 +12,26 @@ export const createBlockSchema = z.object({
     connectorId: z.string().optional(),
   }),
 });
+
+export const updateBlockSchema = z.object({
+  params: z.object({
+    blockId: z.string().min(1),
+  }),
+  body: z.object({
+    position: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+      })
+      .optional(),
+    dependencies: z.array(z.string()).optional(),
+    alias: z.string().optional(),
+    config: z.record(z.string(), z.any()).optional(),
+  }),
+});
+
+export const deleteBlockSchema = z.object({
+  params: z.object({
+    blockId: z.string().min(1),
+  }),
+});

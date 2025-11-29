@@ -18,7 +18,11 @@ const conditionalFields = {
   runIfPath: z.string().optional(),
   runIfEquals: z.union([z.string(), z.number(), z.boolean()]).optional(),
 };
-const withCondition = (schema: z.ZodObject<any, any>) => schema.merge(z.object(conditionalFields));
+const withCondition = (schema: z.ZodObject<any, any>) =>
+  schema
+    .passthrough()
+    .merge(z.object(conditionalFields))
+    .passthrough();
 
 export const blockRegistry: BlockDefinition[] = [
   {
@@ -179,6 +183,79 @@ export const blockRegistry: BlockDefinition[] = [
       collectionId: z.string().min(1),
       keyPath: valuePathSchema,
       alias: z.string().min(1),
+    })),
+  },
+  {
+    id: 'math-add',
+    name: 'Add',
+    description: 'Add two numeric values from payload or memory',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      aPath: valuePathSchema.optional(),
+      bPath: valuePathSchema.optional(),
+      alias: z.string().optional(),
+    })),
+  },
+  {
+    id: 'math-subtract',
+    name: 'Subtract',
+    description: 'Subtract the second value from the first',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      aPath: valuePathSchema.optional(),
+      bPath: valuePathSchema.optional(),
+      alias: z.string().optional(),
+    })),
+  },
+  {
+    id: 'math-multiply',
+    name: 'Multiply',
+    description: 'Multiply two numeric values',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      aPath: valuePathSchema.optional(),
+      bPath: valuePathSchema.optional(),
+      alias: z.string().optional(),
+    })),
+  },
+  {
+    id: 'math-divide',
+    name: 'Divide',
+    description: 'Divide the first value by the second',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      aPath: valuePathSchema.optional(),
+      bPath: valuePathSchema.optional(),
+      alias: z.string().optional(),
+    })),
+  },
+  {
+    id: 'math-greater-than',
+    name: 'Greater than',
+    description: 'Compare two numbers and return whether a > b',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      aPath: valuePathSchema.optional(),
+      bPath: valuePathSchema.optional(),
+      alias: z.string().optional(),
+    })),
+  },
+  {
+    id: 'logic-if-else',
+    name: 'If / else',
+    description: 'Choose between two values based on a boolean condition',
+    category: 'compute',
+    handler: 'nillion',
+    configSchema: withCondition(z.object({
+      conditionPath: valuePathSchema.optional(),
+      truePath: valuePathSchema.optional(),
+      falsePath: valuePathSchema.optional(),
+      alias: z.string().optional(),
     })),
   },
 ];

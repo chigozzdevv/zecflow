@@ -18,6 +18,20 @@ interface CreateBlockInput {
   connectorId?: string;
 }
 
+interface UpdateBlockInput {
+  blockId: string;
+  organizationId: string;
+  position?: { x: number; y: number };
+  dependencies?: string[];
+  alias?: string;
+  config?: Record<string, unknown>;
+}
+
+interface DeleteBlockInput {
+  blockId: string;
+  organizationId: string;
+}
+
 export const createBlock = async (input: CreateBlockInput) => {
   const workflow = await WorkflowModel.findById(input.workflowId);
   if (!workflow || workflow.organization.toString() !== input.organizationId) {
@@ -68,4 +82,49 @@ export const createBlock = async (input: CreateBlockInput) => {
 
 export const listBlocksForWorkflow = (workflowId: string) => {
   return BlockModel.find({ workflow: workflowId }).sort({ order: 1, createdAt: 1 }).lean();
+};
+
+export const updateBlock = async (input: UpdateBlockInput) => {
+  const block = await BlockModel.findById(input.blockId);
+  if (!block || block.organization.toString() !== input.organizationId) {
+    throw new AppError('Block not found', HttpStatus.NOT_FOUND);
+  }
+
+  if (input.config) {
+    const definition = getBlockDefinition(block.type);
+    if (!definition) {
+      throw new AppError('Unknown block type', HttpStatus.BAD_REQUEST);
+    }
+    const parsedConfig = definition.configSchema.parse(input.config);
+    block.config = parsedConfig as any;
+  }
+
+  if (input.position) {
+    block.position = input.position;
+  }
+
+  if (typeof input.alias === 'string') {
+    block.alias = input.alias;
+  }
+
+  if (input.dependencies) {
+    const dependencyIds = input.dependencies.map((id) => new Types.ObjectId(id));
+    const dependencyBlocks = await BlockModel.find({ _id: { $in: dependencyIds } });
+    if (dependencyBlocks.some((b) => b.workflow.toString() !== block.workflow.toString())) {
+      throw new AppError('Dependencies must belong to same workflow', HttpStatus.BAD_REQUEST);
+    }
+    block.dependencies = dependencyIds as any;
+  }
+
+  await block.save();
+  return block.toObject();
+};
+
+export const deleteBlock = async (input: DeleteBlockInput): Promise<void> => {
+  const block = await BlockModel.findById(input.blockId);
+  if (!block || block.organization.toString() !== input.organizationId) {
+    throw new AppError('Block not found', HttpStatus.NOT_FOUND);
+  }
+
+  await block.deleteOne();
 };

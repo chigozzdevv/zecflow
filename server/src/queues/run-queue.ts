@@ -7,7 +7,10 @@ import { RunModel } from '@/features/runs/runs.model';
 import { logger } from '@/utils/logger';
 
 const redisUrl = envConfig.QUEUE_REDIS_URL ?? 'redis://127.0.0.1:6379';
-const connection = new IORedis(redisUrl);
+const connection = new IORedis(redisUrl, {
+  // BullMQ with ioredis v5 requires this to be null so it can manage retries itself
+  maxRetriesPerRequest: null,
+});
 
 export const RUN_QUEUE_NAME = 'workflow-runs';
 

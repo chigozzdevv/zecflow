@@ -114,6 +114,15 @@ export class WorkflowEngine {
         cost += billingService.getCreditCost('connector-request');
       } else if (blockId === 'custom-http-action') {
         cost += billingService.getCreditCost('custom-http-action');
+      } else if (
+        blockId === 'math-add' ||
+        blockId === 'math-subtract' ||
+        blockId === 'math-multiply' ||
+        blockId === 'math-divide' ||
+        blockId === 'math-greater-than' ||
+        blockId === 'logic-if-else'
+      ) {
+        cost += billingService.getCreditCost('nillion-math-logic');
       }
       // Logic blocks (payload-input, json-extract, memo-parser) are free
     }
@@ -166,10 +175,15 @@ export class WorkflowEngine {
       try {
         const connector = node.connector ? connectorMap.get(node.connector) : undefined;
 
+        const nodeDataWithInputs: Record<string, any> = {
+          ...(node.data as Record<string, any>),
+          __inputs: nodeInputs,
+        };
+
         const result = await this.executeNode(
           definition.id,
           definition.handler,
-          node.data as Record<string, any>,
+          nodeDataWithInputs,
           { payload, memory: Object.fromEntries(context.values) },
           connector,
         );
@@ -313,6 +327,144 @@ export class WorkflowEngine {
     data: Record<string, any>,
     context: { payload: Record<string, unknown>; memory: MemoryMap },
   ): Promise<unknown> {
+    const resolveSlotValue = (slotName: string): unknown => {
+      const slots = (data.__inputSlots as Record<string, { source: string; output?: string }> | undefined) ?? {};
+      const slot = slots[slotName];
+      if (!slot || !slot.source) return undefined;
+      const outputName = slot.output && typeof slot.output === 'string' && slot.output.length ? slot.output : 'result';
+      return this.getValueFromContext(context, `memory.${slot.source}.${outputName}`);
+    };
+
+    if (
+      blockId === 'math-add' ||
+      blockId === 'math-subtract' ||
+      blockId === 'math-multiply' ||
+      blockId === 'math-divide' ||
+      blockId === 'math-greater-than'
+    ) {
+      const edgeInputs = (data.__inputs as Record<string, unknown> | undefined) ?? {};
+
+      let aVal = resolveSlotValue('a');
+      let bVal = resolveSlotValue('b');
+
+      if (aVal === undefined && 'a' in edgeInputs) {
+        aVal = edgeInputs.a;
+      }
+      if (bVal === undefined && 'b' in edgeInputs) {
+        bVal = edgeInputs.b;
+      }
+
+      if (aVal === undefined || bVal === undefined) {
+        const aPath = data.aPath as string | undefined;
+        const bPath = data.bPath as string | undefined;
+
+        if (aVal === undefined && aPath) {
+          aVal = this.getValueFromContext(context, aPath);
+        }
+        if (bVal === undefined && bPath) {
+          bVal = this.getValueFromContext(context, bPath);
+        }
+      }
+
+      const nillionBlockId =
+        blockId === 'math-add'
+          ? 'nillion-add'
+          : blockId === 'math-subtract'
+            ? 'nillion-subtract'
+            : blockId === 'math-multiply'
+              ? 'nillion-multiply'
+              : blockId === 'math-divide'
+                ? 'nillion-divide'
+                : 'nillion-greater-than';
+
+      const nillionGraph = {
+        nodes: [
+          {
+            id: 'n1',
+            blockId: nillionBlockId,
+            inputs: {
+              a: aVal,
+              b: bVal,
+            },
+          },
+        ],
+        edges: [],
+      };
+
+      const runId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const { output } = await nilccExecutionService.executeBlockGraph(nillionGraph as any, {}, runId);
+      const raw = (output as Record<string, unknown>)['n1.result'];
+
+      if (blockId === 'math-greater-than') {
+        if (typeof raw === 'boolean') return raw;
+        if (typeof raw === 'number') return raw !== 0;
+        if (typeof raw === 'string') return raw === '1' || raw.toLowerCase() === 'true';
+        return Boolean(raw);
+      }
+
+      if (typeof raw === 'number') return raw;
+      if (typeof raw === 'bigint') return Number(raw);
+      if (typeof raw === 'string') {
+        const parsed = Number(raw);
+        return Number.isNaN(parsed) ? raw : parsed;
+      }
+      return raw;
+    }
+
+    if (blockId === 'logic-if-else') {
+      const edgeInputs = (data.__inputs as Record<string, unknown> | undefined) ?? {};
+
+      let condVal = resolveSlotValue('condition');
+      let trueVal = resolveSlotValue('true');
+      let falseVal = resolveSlotValue('false');
+
+      if (condVal === undefined && 'condition' in edgeInputs) {
+        condVal = edgeInputs.condition;
+      }
+      if (trueVal === undefined && 'true' in edgeInputs) {
+        trueVal = edgeInputs.true;
+      }
+      if (falseVal === undefined && 'false' in edgeInputs) {
+        falseVal = edgeInputs.false;
+      }
+
+      if (condVal === undefined || trueVal === undefined || falseVal === undefined) {
+        const conditionPath = data.conditionPath as string | undefined;
+        const truePath = data.truePath as string | undefined;
+        const falsePath = data.falsePath as string | undefined;
+
+        if (condVal === undefined && conditionPath) {
+          condVal = this.getValueFromContext(context, conditionPath);
+        }
+        if (trueVal === undefined && truePath) {
+          trueVal = this.getValueFromContext(context, truePath);
+        }
+        if (falseVal === undefined && falsePath) {
+          falseVal = this.getValueFromContext(context, falsePath);
+        }
+      }
+
+      const nillionGraph = {
+        nodes: [
+          {
+            id: 'n1',
+            blockId: 'nillion-if-else',
+            inputs: {
+              condition: condVal,
+              true_value: trueVal,
+              false_value: falseVal,
+            },
+          },
+        ],
+        edges: [],
+      };
+
+      const runId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const { output } = await nilccExecutionService.executeBlockGraph(nillionGraph as any, {}, runId);
+      const raw = (output as Record<string, unknown>)['n1.result'];
+      return raw;
+    }
+
     if (blockId === 'nillion-compute') {
       const inputPath = data.inputPath as string | undefined;
       const input = inputPath ? this.getValueFromContext(context, inputPath) : data.inputs || context.payload;
