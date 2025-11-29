@@ -688,7 +688,7 @@ export function DashboardWorkflowPage() {
                     onDrop={onDrop}
                     onDragOver={onDragOver}
                   >
-                    <Background id="zecflow-builder-bg" variant="dots" gap={22} size={1} color="#27272a" />
+                    <Background id="zecflow-builder-bg" gap={22} size={1} color="#27272a" />
                     <MiniMap nodeColor="#4f46e5" nodeBorderRadius={4} />
                     <Controls />
                   </ReactFlow>

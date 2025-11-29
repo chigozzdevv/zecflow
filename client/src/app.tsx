@@ -10,6 +10,7 @@ import { DashboardCreditsPage } from "@/pages/dashboard/credits";
 import { DashboardWorkflowPage } from "@/pages/dashboard/workflow";
 import { DashboardBlocksLibraryPage } from "@/pages/dashboard/blocks-library";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { NotFoundPage } from "@/pages/not-found";
 
 function App() {
   return (
@@ -26,7 +27,9 @@ function App() {
           <Route path="connectors" element={<DashboardConnectorsPage />} />
           <Route path="blocks" element={<DashboardBlocksLibraryPage />} />
           <Route path="credits" element={<DashboardCreditsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );
