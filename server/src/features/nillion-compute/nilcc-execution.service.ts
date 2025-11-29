@@ -114,8 +114,8 @@ services:
     image: node:18-alpine
     working_dir: /app
     volumes:
-      - "\${FILES}/workflow.js:/app/workflow.js:ro"
-      - "\${FILES}/input.json:/app/input.json:ro"
+      - "\${FILES}/workflow.js:/app/workflow.js"
+      - "\${FILES}/input.json:/app/input.json"
     command: |
       sh -c "
         node workflow.js

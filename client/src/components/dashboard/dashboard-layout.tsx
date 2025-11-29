@@ -21,7 +21,9 @@ export function DashboardLayout() {
   const location = useLocation();
   const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [credits, setCredits] = useState<number | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => location.pathname === "/dashboard/workflow",
+  );
 
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("zecflow_access_token") : null;
@@ -59,26 +61,23 @@ export function DashboardLayout() {
     };
   }, [navigate]);
 
-  const inWorkflowBuilder = location.pathname === "/dashboard/workflow";
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex">
       <DashboardSidebar
-        collapsed={inWorkflowBuilder ? true : sidebarCollapsed}
+        collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
       />
       <div
         className={`flex-1 flex flex-col min-h-screen transition-[margin] duration-200 ${
-          inWorkflowBuilder ? "ml-16" : sidebarCollapsed ? "ml-16" : "ml-64"
+          sidebarCollapsed ? "ml-16" : "ml-64"
         }`}
       >
         <header className="border-b border-white/10 bg-black/80 backdrop-blur">
           <div className="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-3">
               <div className="flex flex-col">
-                <span className="text-xs uppercase tracking-wide text-white/70">ZecFlow dashboard</span>
                 <span className="text-sm text-white/90">
-                  {organizationName ? `Org: ${organizationName}` : "Org"}
+                  {organizationName || "Org"}
                 </span>
               </div>
             </div>

@@ -11,27 +11,30 @@ import { DashboardWorkflowPage } from "@/pages/dashboard/workflow";
 import { DashboardBlocksLibraryPage } from "@/pages/dashboard/blocks-library";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { NotFoundPage } from "@/pages/not-found";
+import { NillionUserProvider } from "@/context/nillion-user-context";
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth" element={<AuthPage />} />
-        <Route path="/dashboard" element={<DashboardLayout />}>
-          <Route index element={<DashboardOverviewPage />} />
-          <Route path="workflows" element={<DashboardWorkflowsPage />} />
-          <Route path="workflow" element={<DashboardWorkflowPage />} />
-          <Route path="runs" element={<DashboardRunsPage />} />
-          <Route path="triggers" element={<DashboardTriggersPage />} />
-          <Route path="connectors" element={<DashboardConnectorsPage />} />
-          <Route path="blocks" element={<DashboardBlocksLibraryPage />} />
-          <Route path="credits" element={<DashboardCreditsPage />} />
+    <NillionUserProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/dashboard" element={<DashboardLayout />}>
+            <Route index element={<DashboardOverviewPage />} />
+            <Route path="workflows" element={<DashboardWorkflowsPage />} />
+            <Route path="workflow" element={<DashboardWorkflowPage />} />
+            <Route path="runs" element={<DashboardRunsPage />} />
+            <Route path="triggers" element={<DashboardTriggersPage />} />
+            <Route path="connectors" element={<DashboardConnectorsPage />} />
+            <Route path="blocks" element={<DashboardBlocksLibraryPage />} />
+            <Route path="credits" element={<DashboardCreditsPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Route>
           <Route path="*" element={<NotFoundPage />} />
-        </Route>
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </NillionUserProvider>
   );
 }
 

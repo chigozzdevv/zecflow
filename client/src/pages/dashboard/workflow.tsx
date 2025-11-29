@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
-  MiniMap,
   addEdge,
   useEdgesState,
   useNodesState,
@@ -590,30 +590,7 @@ export function DashboardWorkflowPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border border-white/10 bg-zinc-900/80 p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">Workflow builder</h2>
-          <p className="text-sm text-zinc-300 max-w-xl">Connect triggers, blocks, and Zcash or Nillion actions.</p>
-        </div>
-        {workflows.length > 0 && (
-          <div className="space-y-1 text-sm">
-            <div className="text-xs text-zinc-400">Workflow</div>
-            <select
-              value={selectedWorkflowId}
-              onChange={(e) => setSelectedWorkflowId(e.target.value)}
-              className="w-60 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
-            >
-              {workflows.map((wf) => (
-                <option key={wf._id} value={wf._id}>
-                  {wf.name} {wf.status === "published" ? "(published)" : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-      </div>
-
+    <div className="space-y-3">
       {error && (
         <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
           {error}
@@ -634,28 +611,38 @@ export function DashboardWorkflowPage() {
           <div className="h-6 w-6 rounded-full border-2 border-white/30 border-t-transparent animate-spin" />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {blocksError && (
             <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
               {blocksError}
             </div>
           )}
           {selectedWorkflow && (
-            <div className="text-xs text-zinc-400">
-              Showing blocks for <span className="text-zinc-200">{selectedWorkflow.name}</span>
-            </div>
-          )}
-          {selectedWorkflow && (
-            <div className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4 space-y-3">
-              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-white">Workflow canvas</h3>
-                  <p className="text-xs text-zinc-400">Click or drag blocks into the canvas and connect them.</p>
+            <div className="rounded-2xl border border-white/8 bg-zinc-900/70 p-3 space-y-2">
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-0.5">
+                  <h3 className="text-sm font-semibold text-white">Builder</h3>
                 </div>
+                {workflows.length > 0 && (
+                  <div className="space-y-1 text-xs">
+                    <div className="text-[11px] text-zinc-400">Workflow</div>
+                    <select
+                      value={selectedWorkflowId}
+                      onChange={(e) => setSelectedWorkflowId(e.target.value)}
+                      className="w-52 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+                    >
+                      {workflows.map((wf) => (
+                        <option key={wf._id} value={wf._id}>
+                          {wf.name} {wf.status === "published" ? "(published)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
               <div
                 ref={reactFlowWrapper}
-                className="h-96 rounded-2xl border border-white/12 bg-black flex overflow-hidden"
+                className="h-[460px] rounded-2xl border border-white/12 bg-black flex overflow-hidden"
               >
                 <div className="w-56 border-r border-white/10 p-3 space-y-2 overflow-y-auto">
                   <div className="text-xs font-semibold text-zinc-300 mb-1">Blocks</div>
@@ -687,21 +674,19 @@ export function DashboardWorkflowPage() {
                     fitView
                     onDrop={onDrop}
                     onDragOver={onDragOver}
+                    proOptions={{ hideAttribution: true }}
                   >
-                    <Background id="zecflow-builder-bg" gap={22} size={1} color="#27272a" />
-                    <MiniMap nodeColor="#4f46e5" nodeBorderRadius={4} />
+                    <Background
+                      id="zecflow-builder-bg"
+                      variant={BackgroundVariant.Dots}
+                      gap={22}
+                      size={1}
+                      color="#6758c1"
+                    />
                     <Controls />
                   </ReactFlow>
                 </div>
               </div>
-            </div>
-          )}
-          {blocks.length === 0 && (
-            <div className="rounded-3xl border border-dashed border-white/20 bg-zinc-900/70 p-6 flex flex-col items-center justify-center text-center gap-2">
-              <p className="text-sm text-zinc-300">No blocks in this workflow yet.</p>
-              <p className="text-xs text-zinc-500">
-                Click a block on the left or drag it into the canvas to start your flow.
-              </p>
             </div>
           )}
         </div>

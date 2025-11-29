@@ -158,7 +158,19 @@ export class WorkflowEngine {
       }
     }
 
-    for (const nodeId of executionOrder) {
+    const executedNodeIds = new Set<string>();
+    for (const inputNode of inputNodes) {
+      executedNodeIds.add(inputNode.id);
+    }
+
+    const nodeIndex = new Map<string, number>();
+    executionOrder.forEach((id, idx) => nodeIndex.set(id, idx));
+
+    for (let orderIdx = 0; orderIdx < executionOrder.length; orderIdx += 1) {
+      const nodeId = executionOrder[orderIdx];
+      if (executedNodeIds.has(nodeId)) {
+        continue;
+      }
       const node = graph.nodes.find((n) => n.id === nodeId);
       if (!node) continue;
 
@@ -167,6 +179,18 @@ export class WorkflowEngine {
       const definition = getBlockDefinition(node.blockId);
       if (!definition) {
         throw new Error(`Unknown block: ${node.blockId}`);
+      }
+
+      if (definition.handler === 'nillion' && this.isBatchableNillionBlock(definition.id)) {
+        const batchNodeIds = this.buildNillionBatch(graph, executionOrder, nodeIndex, orderIdx, executedNodeIds);
+        const batchResult = await this.executeNillionBatch(graph, batchNodeIds, payload, context, runId);
+
+        for (const step of batchResult.steps) {
+          executionSteps.push(step);
+          executedNodeIds.add(step.nodeId);
+        }
+
+        continue;
       }
 
       const nodeInputs = this.gatherNodeInputs(node, graph, context);
@@ -230,6 +254,7 @@ export class WorkflowEngine {
           duration: Date.now() - stepStart,
           status: 'success',
         });
+        executedNodeIds.add(nodeId);
       } catch (error: any) {
         executionSteps.push({
           nodeId,
@@ -266,6 +291,366 @@ export class WorkflowEngine {
       duration: Date.now() - startTime,
       status: 'success',
     };
+  }
+
+  private isBatchableNillionBlock(blockId: string): boolean {
+    return (
+      blockId === 'math-add' ||
+      blockId === 'math-subtract' ||
+      blockId === 'math-multiply' ||
+      blockId === 'math-divide' ||
+      blockId === 'math-greater-than' ||
+      blockId === 'logic-if-else'
+    );
+  }
+
+  private buildNillionBatch(
+    graph: WorkflowGraph,
+    executionOrder: string[],
+    nodeIndex: Map<string, number>,
+    startIndex: number,
+    executedNodeIds: Set<string>,
+  ): string[] {
+    const nodeById = new Map<string, WorkflowNode>();
+    for (const node of graph.nodes) {
+      nodeById.set(node.id, node);
+    }
+
+    const candidateIds = new Set<string>();
+    for (let i = startIndex; i < executionOrder.length; i += 1) {
+      const id = executionOrder[i];
+      const node = nodeById.get(id);
+      if (!node) continue;
+      const def = getBlockDefinition(node.blockId);
+      if (!def || def.handler !== 'nillion' || !this.isBatchableNillionBlock(def.id)) {
+        continue;
+      }
+      if (executedNodeIds.has(id)) {
+        continue;
+      }
+      candidateIds.add(id);
+    }
+
+    const batch = new Set<string>();
+    let changed = true;
+
+    while (changed) {
+      changed = false;
+
+      for (const id of candidateIds) {
+        if (batch.has(id)) continue;
+        const node = nodeById.get(id);
+        if (!node) continue;
+
+        const incoming = graph.edges.filter((e) => e.target === id);
+        let ok = true;
+
+        for (const edge of incoming) {
+          const sourceId = edge.source;
+          if (executedNodeIds.has(sourceId)) {
+            continue;
+          }
+
+          const sourceIndex = nodeIndex.get(sourceId);
+          if (sourceIndex === undefined) {
+            continue;
+          }
+
+          if (sourceIndex < startIndex) {
+            continue;
+          }
+
+          if (candidateIds.has(sourceId) && batch.has(sourceId)) {
+            continue;
+          }
+
+          ok = false;
+          break;
+        }
+
+        if (ok) {
+          batch.add(id);
+          changed = true;
+        }
+      }
+    }
+
+    const startNodeId = executionOrder[startIndex];
+    if (!batch.has(startNodeId)) {
+      return [startNodeId];
+    }
+
+    return Array.from(batch);
+  }
+
+  private ensureIntegerLiteral(raw: unknown, label: string, nodeId: string): string | number {
+    if (raw === null || raw === undefined) {
+      throw new Error(`Missing numeric input for ${label} at node ${nodeId}`);
+    }
+
+    if (typeof raw === 'number') {
+      if (!Number.isFinite(raw) || !Number.isInteger(raw)) {
+        throw new Error(`Non-integer numeric input for ${label} at node ${nodeId}: ${raw}`);
+      }
+      return raw;
+    }
+
+    if (typeof raw === 'bigint') {
+      return raw.toString();
+    }
+
+    if (typeof raw === 'boolean') {
+      return raw ? 1 : 0;
+    }
+
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (!/^[-+]?\d+$/.test(trimmed)) {
+        throw new Error(`Invalid integer string for ${label} at node ${nodeId}: "${raw}"`);
+      }
+      return trimmed;
+    }
+
+    throw new Error(`Unsupported input type for ${label} at node ${nodeId}: ${typeof raw}`);
+  }
+
+  private async executeNillionBatch(
+    graph: WorkflowGraph,
+    batchNodeIds: string[],
+    payload: Record<string, unknown>,
+    context: ExecutionContext,
+    runId: string,
+  ): Promise<{ steps: ExecutionStep[] }> {
+    const nodeById = new Map<string, WorkflowNode>();
+    for (const node of graph.nodes) {
+      nodeById.set(node.id, node);
+    }
+
+    const batchSet = new Set(batchNodeIds);
+    const steps: ExecutionStep[] = [];
+
+    const nillionGraphNodes: { id: string; blockId: string; inputs: Record<string, any> }[] = [];
+    const nillionGraphEdges: { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }[] = [];
+
+    const nodeInputsById = new Map<string, Record<string, any>>();
+
+    for (const nodeId of batchNodeIds) {
+      const node = nodeById.get(nodeId);
+      if (!node) continue;
+
+      const definition = getBlockDefinition(node.blockId);
+      if (!definition) {
+        throw new Error(`Unknown block: ${node.blockId}`);
+      }
+
+      const nodeInputs = this.gatherNodeInputs(node, graph, context);
+      nodeInputsById.set(nodeId, nodeInputs);
+
+      let nillionBlockId: string;
+      if (node.blockId === 'math-add') {
+        nillionBlockId = 'nillion-add';
+      } else if (node.blockId === 'math-subtract') {
+        nillionBlockId = 'nillion-subtract';
+      } else if (node.blockId === 'math-multiply') {
+        nillionBlockId = 'nillion-multiply';
+      } else if (node.blockId === 'math-divide') {
+        nillionBlockId = 'nillion-divide';
+      } else if (node.blockId === 'math-greater-than') {
+        nillionBlockId = 'nillion-greater-than';
+      } else if (node.blockId === 'logic-if-else') {
+        nillionBlockId = 'nillion-if-else';
+      } else {
+        throw new Error(`Unsupported nillion block for batch: ${node.blockId}`);
+      }
+
+      const staticInputs: Record<string, any> = {};
+
+      if (nillionBlockId === 'nillion-add' || nillionBlockId === 'nillion-subtract' || nillionBlockId === 'nillion-multiply' || nillionBlockId === 'nillion-divide' || nillionBlockId === 'nillion-greater-than') {
+        const hasInternalA = graph.edges.some(
+          (e) => e.target === nodeId && e.targetHandle === 'a' && batchSet.has(e.source),
+        );
+        const hasInternalB = graph.edges.some(
+          (e) => e.target === nodeId && e.targetHandle === 'b' && batchSet.has(e.source),
+        );
+
+        if (!hasInternalA) {
+          let aVal = nodeInputs.a;
+          const aPath = (node.data as Record<string, any>).aPath as string | undefined;
+          if (aVal === undefined && aPath) {
+            aVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, aPath);
+          }
+          staticInputs.a = this.ensureIntegerLiteral(aVal, 'a', nodeId);
+        }
+
+        if (!hasInternalB) {
+          let bVal = nodeInputs.b;
+          const bPath = (node.data as Record<string, any>).bPath as string | undefined;
+          if (bVal === undefined && bPath) {
+            bVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, bPath);
+          }
+          staticInputs.b = this.ensureIntegerLiteral(bVal, 'b', nodeId);
+        }
+      } else if (nillionBlockId === 'nillion-if-else') {
+        const hasInternalCondition = graph.edges.some(
+          (e) => e.target === nodeId && e.targetHandle === 'condition' && batchSet.has(e.source),
+        );
+        const hasInternalTrue = graph.edges.some(
+          (e) => e.target === nodeId && e.targetHandle === 'true' && batchSet.has(e.source),
+        );
+        const hasInternalFalse = graph.edges.some(
+          (e) => e.target === nodeId && e.targetHandle === 'false' && batchSet.has(e.source),
+        );
+
+        if (!hasInternalCondition) {
+          let condVal = nodeInputs.condition;
+          const conditionPath = (node.data as Record<string, any>).conditionPath as string | undefined;
+          if (condVal === undefined && conditionPath) {
+            condVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, conditionPath);
+          }
+          staticInputs.condition = this.ensureIntegerLiteral(condVal, 'condition', nodeId);
+        }
+
+        if (!hasInternalTrue) {
+          let trueVal = nodeInputs.true;
+          const truePath = (node.data as Record<string, any>).truePath as string | undefined;
+          if (trueVal === undefined && truePath) {
+            trueVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, truePath);
+          }
+          staticInputs.true_value = this.ensureIntegerLiteral(trueVal, 'true_value', nodeId);
+        }
+
+        if (!hasInternalFalse) {
+          let falseVal = nodeInputs.false;
+          const falsePath = (node.data as Record<string, any>).falsePath as string | undefined;
+          if (falseVal === undefined && falsePath) {
+            falseVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, falsePath);
+          }
+          staticInputs.false_value = this.ensureIntegerLiteral(falseVal, 'false_value', nodeId);
+        }
+      }
+
+      nillionGraphNodes.push({
+        id: nodeId,
+        blockId: nillionBlockId,
+        inputs: staticInputs,
+      });
+    }
+
+    for (const edge of graph.edges) {
+      if (batchSet.has(edge.source) && batchSet.has(edge.target)) {
+        nillionGraphEdges.push({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.sourceHandle,
+          targetHandle: edge.targetHandle,
+        });
+      }
+    }
+
+    const nillionGraph = {
+      nodes: nillionGraphNodes,
+      edges: nillionGraphEdges,
+    } as any;
+
+    const batchRunId = `${runId}-nillion-${Date.now()}`;
+    const stepStart = Date.now();
+
+    logger.debug(
+      {
+        runId: batchRunId,
+        batchNodeIds,
+        nillionGraph: {
+          nodes: nillionGraphNodes.map((n) => ({ id: n.id, blockId: n.blockId, inputKeys: Object.keys(n.inputs) })),
+          edges: nillionGraphEdges,
+        },
+      },
+      'Executing Nillion batch graph',
+    );
+
+    try {
+      const { output } = await nilccExecutionService.executeBlockGraph(nillionGraph, {}, batchRunId);
+
+      for (const nodeId of batchNodeIds) {
+        const node = nodeById.get(nodeId);
+        if (!node) continue;
+
+        const nodeInputs = nodeInputsById.get(nodeId) ?? {};
+        const nodeData = node.data as Record<string, any>;
+        const configAliases: string[] = [];
+        const normalizedAlias = typeof nodeData?.alias === 'string' ? nodeData.alias.trim() : '';
+        if (normalizedAlias) {
+          configAliases.push(normalizedAlias);
+        }
+        const normalizedResponseAlias =
+          typeof nodeData?.responseAlias === 'string' ? nodeData.responseAlias.trim() : '';
+        if (normalizedResponseAlias) {
+          configAliases.push(normalizedResponseAlias);
+        }
+
+        const storeOutputValue = (outputName: string, value: any) => {
+          const keys = new Set<string>([`${nodeId}.${outputName}`]);
+          if (node.alias) {
+            keys.add(`${node.alias}.${outputName}`);
+          }
+          for (const aliasName of configAliases) {
+            keys.add(`${aliasName}.${outputName}`);
+          }
+          for (const key of keys) {
+            this.setContextValue(context, key, value);
+          }
+        };
+
+        const valueKey = `${nodeId}.result`;
+        const rawValue = (output as Record<string, unknown>)[valueKey];
+
+        let normalizedValue: unknown = rawValue;
+        if (node.blockId === 'math-greater-than') {
+          if (typeof rawValue === 'boolean') {
+            normalizedValue = rawValue;
+          } else if (typeof rawValue === 'number') {
+            normalizedValue = rawValue !== 0;
+          } else if (typeof rawValue === 'string') {
+            const lowered = rawValue.toLowerCase();
+            normalizedValue = rawValue === '1' || lowered === 'true';
+          } else {
+            normalizedValue = Boolean(rawValue);
+          }
+        } else if (typeof rawValue === 'string') {
+          const parsed = Number(rawValue);
+          normalizedValue = Number.isNaN(parsed) ? rawValue : parsed;
+        }
+
+        storeOutputValue('result', normalizedValue);
+
+        steps.push({
+          nodeId,
+          blockId: node.blockId,
+          inputs: nodeInputs,
+          outputs: { result: normalizedValue },
+          duration: Date.now() - stepStart,
+          status: 'success',
+        });
+      }
+    } catch (error: any) {
+      for (const nodeId of batchNodeIds) {
+        const node = nodeById.get(nodeId);
+        if (!node) continue;
+        const nodeInputs = nodeInputsById.get(nodeId) ?? {};
+        steps.push({
+          nodeId,
+          blockId: node.blockId,
+          inputs: nodeInputs,
+          outputs: {},
+          duration: Date.now() - stepStart,
+          status: 'failed',
+          error: error.message,
+        });
+      }
+      throw error;
+    }
+
+    return { steps };
   }
 
   // removed VM-based queued execution path
@@ -500,15 +885,17 @@ export class WorkflowEngine {
       const key = data.keyPath ? this.getValueFromContext(context, data.keyPath as string) : 'default';
       const keyStr = typeof key === 'string' && key.length ? key : 'default';
       const encryptFields = data.encryptFields as string[] | undefined;
-      const encryptAll = data.encryptAll !== false;
+      const encryptAll = data.encryptAll as boolean | undefined;
+      const hasEncryptFields = Array.isArray(encryptFields) && encryptFields.length > 0;
+      const effectiveEncryptAll = encryptAll === true || (encryptAll === undefined && !hasEncryptFields);
       await nildbService.putDocument(
         data.collectionId as string,
         keyStr,
         (dataToStore ?? {}) as Record<string, unknown>,
         undefined,
-        { encryptFields: encryptAll && !encryptFields ? undefined : encryptFields },
+        { encryptFields, encryptAll },
       );
-      return { stored: true, encrypted: encryptAll || (encryptFields && encryptFields.length > 0) };
+      return { stored: true, encrypted: hasEncryptFields || effectiveEncryptAll };
     }
 
     if (blockId === 'state-read') {

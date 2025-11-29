@@ -15,8 +15,8 @@
   "type": "commonjs",
   "dependencies": {
     "@nillion/nilai-ts": "^0.2.0",
-    "@nillion/nuc": "^0.1.0",
-    "@nillion/secretvaults": "^0.1.7",
+    "@nillion/nuc": "^1.0.0",
+    "@nillion/secretvaults": "^1.0.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.63.2",
@@ -30,7 +30,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.4",
     "node-cron": "^4.2.1",
-    "pino": "^10.1.0",
+    "pino": "^9.7.0",
     "pino-pretty": "^13.1.2",
     "uuid": "^13.0.0",
     "zod": "^4.1.12"

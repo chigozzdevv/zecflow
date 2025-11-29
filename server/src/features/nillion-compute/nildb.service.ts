@@ -24,15 +24,19 @@ class NilDBService {
     const dbNodeList = NILDB_NODES;
 
     this.builderPromise = (async () => {
-      const { SecretVaultBuilderClient, Did } = await import('@nillion/secretvaults');
-      const { Keypair } = await import('@nillion/nuc');
+      const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
+      const { NilauthClient, PayerBuilder, Signer } = await import('@nillion/nuc');
 
       const dbs = dbNodeList.split(',').map((s) => s.trim()).filter(Boolean);
-      const keypair = Keypair.from(apiKey);
+
+      const payer = await PayerBuilder.fromPrivateKey(apiKey).chainUrl(chainUrl).build();
+      const nilauthClient = await NilauthClient.create({ baseUrl: authUrl, payer });
+      const signer = await Signer.fromPrivateKey(apiKey, 'nil');
 
       const builder = await SecretVaultBuilderClient.from({
-        keypair,
-        urls: { chain: chainUrl, auth: authUrl, dbs },
+        signer,
+        nilauthClient,
+        dbs,
         blindfold: { operation: 'store' },
       });
 
@@ -41,11 +45,11 @@ class NilDBService {
       try {
         const existingProfile = await builder.readProfile();
         logger.info({ name: existingProfile.data.name }, 'NilDB builder already registered');
-      } catch (profileError) {
+      } catch {
         try {
-          const didString = keypair.toDid().toString();
+          const did = await builder.getDid();
           await builder.register({
-            did: Did.parse(didString),
+            did: did.didString,
             name: 'ZecFlow Builder',
           });
           logger.info('NilDB builder registered successfully');
@@ -72,7 +76,7 @@ class NilDBService {
 
     try {
       const collections = await builder.readCollections();
-      const exists = collections?.data?.some((c: any) => c._id === collectionId);
+      const exists = collections?.data?.some((c: any) => c.id === collectionId);
 
       if (!exists) {
         const collection = {
@@ -98,7 +102,7 @@ class NilDBService {
     key: string,
     data: Record<string, unknown>,
     schema?: Record<string, unknown>,
-    options?: { encryptFields?: string[] },
+    options?: { encryptFields?: string[]; encryptAll?: boolean },
   ): Promise<{ key: string; collectionId: string }> {
     const builder = await this.getBuilder();
 
@@ -106,7 +110,7 @@ class NilDBService {
       await this.ensureCollection(collectionId, schema);
     }
 
-    const encryptedData = this.prepareEncryptedData(data, options?.encryptFields);
+    const encryptedData = this.prepareEncryptedData(data, options);
     const record = { _id: key, ...encryptedData };
 
     try {
@@ -133,21 +137,28 @@ class NilDBService {
 
   private prepareEncryptedData(
     data: Record<string, unknown>,
-    encryptFields?: string[],
+    options?: { encryptFields?: string[]; encryptAll?: boolean },
   ): Record<string, unknown> {
-    if (!encryptFields || encryptFields.length === 0) {
-      return this.encryptAllSensitiveFields(data);
+    const encryptFields = options?.encryptFields;
+    const encryptAll = options?.encryptAll;
+
+    if (encryptFields && encryptFields.length > 0) {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (encryptFields.includes(key) && value !== null && value !== undefined) {
+          result[key] = { '%allot': String(value) };
+        } else {
+          result[key] = value;
+        }
+      }
+      return result;
     }
 
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data)) {
-      if (encryptFields.includes(key) && value !== null && value !== undefined) {
-        result[key] = { '%allot': String(value) };
-      } else {
-        result[key] = value;
-      }
+    if (encryptAll === false) {
+      return data;
     }
-    return result;
+
+    return this.encryptAllSensitiveFields(data);
   }
 
   private encryptAllSensitiveFields(data: Record<string, unknown>): Record<string, unknown> {
@@ -194,7 +205,7 @@ class NilDBService {
   async storeState(
     collectionId: string,
     payload: Record<string, unknown>,
-    options?: { encryptFields?: string[] },
+    options?: { encryptFields?: string[]; encryptAll?: boolean },
   ): Promise<string> {
     const key = typeof payload.key === 'string' && payload.key.length ? payload.key : 'default';
     const payloadData = payload.data as Record<string, unknown> | undefined;
