@@ -899,9 +899,15 @@ export class WorkflowEngine {
     }
 
     if (blockId === 'state-read') {
-      const keyValue = this.getValueFromContext(context, data.keyPath as string);
-      const keyStr = typeof keyValue === 'string' && keyValue.length ? keyValue : 'default';
-      return nildbService.getDocument(data.collectionId as string, keyStr);
+      const effectiveKeyPath = (data.keyPath as string | undefined) || 'payload.stateKey';
+      const keyValue = this.getValueFromContext(context, effectiveKeyPath);
+      const rawKey = typeof keyValue === 'string' && keyValue.length ? keyValue : 'default';
+      const parts = rawKey.split(':');
+      if (parts.length === 2) {
+        const [collectionId, key] = parts;
+        return nildbService.getDocument(collectionId, key);
+      }
+      return nildbService.getDocument(data.collectionId as string, rawKey);
     }
 
     throw new Error(`Unknown nillion block ${blockId}`);

@@ -235,7 +235,7 @@ export function DashboardWorkflowsPage() {
           onSubmit={handleCreate}
           className="rounded-3xl border border-white/10 bg-zinc-900/80 p-5 space-y-4"
         >
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="block text-xs font-medium text-zinc-300">Name</label>
               <input
@@ -245,31 +245,13 @@ export function DashboardWorkflowsPage() {
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
                 placeholder="Send shielded payouts"
               />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-300">Description</label>
+              <label className="block text-xs font-medium text-zinc-300 mt-3">Description</label>
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
                 placeholder="Optional context for your team"
               />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-zinc-300">Trigger</label>
-              <select
-                value={triggerId}
-                onChange={handleTriggerSelect}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
-              >
-                <option value="">No trigger</option>
-                {triggers.map((t) => (
-                  <option key={t._id} value={t._id}>
-                    {t.name} · {t.type} {t.status === "active" ? "(active)" : "(inactive)"}
-                  </option>
-                ))}
-                <option value="__new__">New trigger…</option>
-              </select>
             </div>
             <div className="space-y-2">
               <label className="block text-xs font-medium text-zinc-300">Dataset</label>
@@ -285,6 +267,20 @@ export function DashboardWorkflowsPage() {
                   </option>
                 ))}
                 <option value="__new__">New dataset…</option>
+              </select>
+              <label className="block text-xs font-medium text-zinc-300 mt-3">Trigger</label>
+              <select
+                value={triggerId}
+                onChange={handleTriggerSelect}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+              >
+                <option value="">No trigger</option>
+                {triggers.map((t) => (
+                  <option key={t._id} value={t._id}>
+                    {t.name} · {t.type} {t.status === "active" ? "(active)" : "(inactive)"}
+                  </option>
+                ))}
+                <option value="__new__">New trigger…</option>
               </select>
             </div>
           </div>
@@ -373,12 +369,10 @@ export function DashboardWorkflowsPage() {
                           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-500/20 text-violet-200">
                             <WorkflowIcon className="h-4 w-4" />
                           </div>
-                          <div>
-                            <div className="font-medium text-white">{workflow.name}</div>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-white">{workflow.name}</span>
                             {workflow.description && (
-                              <div className="text-xs text-zinc-400 max-w-xs truncate">
-                                {workflow.description}
-                              </div>
+                              <span className="text-xs text-zinc-400 max-w-xs truncate">{workflow.description}</span>
                             )}
                           </div>
                         </div>

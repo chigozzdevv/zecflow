@@ -720,7 +720,7 @@ export function DashboardWorkflowPage() {
           <div className="h-6 w-6 rounded-full border-2 border-white/30 border-t-transparent animate-spin" />
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {blocksError && (
             <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
               {blocksError}
@@ -731,6 +731,11 @@ export function DashboardWorkflowPage() {
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-0.5">
                   <h3 className="text-sm font-semibold text-white">Builder</h3>
+                  <p className="text-[11px] text-zinc-400 max-w-xl">
+                    Publishing is only available from the Workflows list, not inside this builder.
+                    Use this page to edit the graph, then go back to <span className="font-medium">Workflows</span>
+                    to change lifecycle (draft → published → paused) and to view the integration snippet.
+                  </p>
                 </div>
                 {workflows.length > 0 && (
                   <div className="space-y-1 text-xs">
