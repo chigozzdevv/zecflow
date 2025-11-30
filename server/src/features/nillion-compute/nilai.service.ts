@@ -2,13 +2,7 @@ import axios from 'axios';
 import { envConfig } from '@/config/env';
 import { logger } from '@/utils/logger';
 
-const AVAILABLE_MODELS = [
-  'google/gemma-3-27b-it',
-  'openai/gpt-oss-20b',
-  'meta-llama/Llama-3.1-8B-Instruct',
-] as const;
-
-type NilAIModel = (typeof AVAILABLE_MODELS)[number];
+type NilAIModel = string;
 type NilaiModule = {
   NilaiOpenAIClient: new (...args: any[]) => any;
   NilAuthInstance: { SANDBOX: string; PRODUCTION: string };
@@ -131,9 +125,8 @@ class NilAIService {
 
   async runInference(prompt: string, model?: NilAIModel): Promise<NilAIResult> {
     const selectedModel = model || this.defaultModel;
-    if (!AVAILABLE_MODELS.includes(selectedModel as any)) {
-      throw new Error(`Invalid model: ${selectedModel}. Available: ${AVAILABLE_MODELS.join(', ')}`);
-    }
+    // Model validation is now flexible - any model string is accepted
+    // The API will return an error if the model is not available
 
     try {
       const client = await this.ensureClient();
