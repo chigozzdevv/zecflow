@@ -605,7 +605,11 @@ export function DashboardWorkflowPage() {
           body: JSON.stringify({ dependencies: newDeps, config: nextConfig }),
         });
         const updatedBlock = res.block;
-        setBlocks((prev) => prev.map((b) => (b._id === updatedBlock._id ? updatedBlock : b)));
+        setBlocks((prev) => {
+          const updated = prev.map((b) => (b._id === updatedBlock._id ? updatedBlock : b));
+          blocksRef.current = updated;
+          return updated;
+        });
         setEdges((eds) => addEdge({ ...connection, type: "smoothstep" }, eds));
       } catch {
         // ignore for now
@@ -815,10 +819,10 @@ export function DashboardWorkflowPage() {
                     <button
                       type="button"
                       onClick={handlePublishWorkflow}
-                      disabled={publishing || !selectedWorkflow || selectedWorkflow.status === "published"}
+                      disabled={publishing || !selectedWorkflow}
                       className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-1.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
                     >
-                      {publishing ? "Publishing…" : selectedWorkflow?.status === "published" ? "Published" : "Publish"}
+                      {publishing ? "Publishing…" : selectedWorkflow?.status === "published" ? "Republish" : "Publish"}
                     </button>
                   </div>
                 )}

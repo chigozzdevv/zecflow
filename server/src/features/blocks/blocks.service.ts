@@ -107,8 +107,18 @@ export const updateBlock = async (input: UpdateBlockInput) => {
     if (!definition) {
       throw new AppError('Unknown block type', HttpStatus.BAD_REQUEST);
     }
-    const parsedConfig = definition.configSchema.parse(input.config);
-    block.config = parsedConfig as any;
+    const parsedConfig = definition.configSchema.parse(input.config) as Record<string, unknown>;
+    
+    // Merge __inputSlots instead of replacing to handle concurrent connections
+    const existingConfig = (block.config ?? {}) as Record<string, unknown>;
+    const existingSlots = (existingConfig.__inputSlots ?? {}) as Record<string, unknown>;
+    const newSlots = (parsedConfig.__inputSlots ?? {}) as Record<string, unknown>;
+    
+    block.config = {
+      ...existingConfig,
+      ...parsedConfig,
+      __inputSlots: { ...existingSlots, ...newSlots },
+    } as any;
   }
 
   if (input.position) {
@@ -120,12 +130,15 @@ export const updateBlock = async (input: UpdateBlockInput) => {
   }
 
   if (input.dependencies) {
-    const dependencyIds = input.dependencies.map((id) => new Types.ObjectId(id));
-    const dependencyBlocks = await BlockModel.find({ _id: { $in: dependencyIds } });
+    const newDepIds = input.dependencies.map((id) => new Types.ObjectId(id));
+    const dependencyBlocks = await BlockModel.find({ _id: { $in: newDepIds } });
     if (dependencyBlocks.some((b) => b.workflow.toString() !== block.workflow.toString())) {
       throw new AppError('Dependencies must belong to same workflow', HttpStatus.BAD_REQUEST);
     }
-    block.dependencies = dependencyIds as any;
+    // Merge dependencies instead of replacing to handle concurrent connections
+    const existingDepIds = (block.dependencies ?? []).map((d) => d.toString());
+    const mergedDeps = [...new Set([...existingDepIds, ...input.dependencies])];
+    block.dependencies = mergedDeps.map((id) => new Types.ObjectId(id)) as any;
   }
 
   await block.save();
