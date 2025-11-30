@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
-import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { HttpStatus } from '@/utils/http-status';
 import { createRun } from '@/features/runs/runs.service';
 import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { DemoSubmissionModel } from './demo.model';
+import { envConfig } from '@/config/env';
+import { nildbService } from '@/features/nillion-compute/nildb.service';
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -174,4 +175,11 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
   }));
 
   res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
+};
+
+export const demoConfigHandler = async (_req: Request, res: Response): Promise<void> => {
+  res.status(HttpStatus.OK).json({
+    loanCollectionId: envConfig.DEMO_LOAN_COLLECTION_ID ?? null,
+    medicalCollectionId: envConfig.DEMO_MEDICAL_COLLECTION_ID ?? null,
+  });
 };

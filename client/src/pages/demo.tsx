@@ -44,9 +44,18 @@ export function DemoPage() {
   type DemoWorkflowNode = { id: string; alias?: string; blockId: string; type: string };
   const [loanNodes, setLoanNodes] = useState<DemoWorkflowNode[]>([]);
   const [medicalNodes, setMedicalNodes] = useState<DemoWorkflowNode[]>([]);
+  const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
+      try {
+        const cfg = await request<{ loanCollectionId: string | null; medicalCollectionId: string | null }>(
+          "/demo/config",
+        );
+        setLoanCollectionId(cfg.loanCollectionId ?? null);
+      } catch {
+        // leave collectionId null; error will show on submit
+      }
       try {
         const loan = await request<{ nodes: DemoWorkflowNode[] }>("/demo/loan-workflow");
         setLoanNodes(loan.nodes ?? []);
@@ -72,6 +81,11 @@ export function DemoPage() {
       return;
     }
 
+    if (!loanCollectionId) {
+      setLoanError("Loan collection is not configured. Contact the app operator.");
+      return;
+    }
+
     setLoanLoading(true);
     const income = Number(loanForm.income);
     const existingDebt = Number(loanForm.existingDebt);
@@ -83,14 +97,9 @@ export function DemoPage() {
     }
     try {
       // Create user-owned encrypted record in NilDB via wallet-based user client
-      const collectionId = import.meta.env.VITE_DEMO_LOAN_COLLECTION_ID as string | undefined;
-      if (!collectionId) {
-        throw new Error("VITE_DEMO_LOAN_COLLECTION_ID is not configured");
-      }
-
       const createResponse = await nillionClient.createData({
         owner: did,
-        collection: collectionId,
+        collection: loanCollectionId,
         data: [
           {
             fullName: loanForm.fullName,
@@ -116,7 +125,7 @@ export function DemoPage() {
         throw new Error("NilDB did not return a created document id");
       }
 
-      const stateKey = `${collectionId}:${documentId}`;
+      const stateKey = `${loanCollectionId}:${documentId}`;
 
       const res = await request<LoanSubmissionResponse>("/demo/loan-app", {
         method: "POST",
