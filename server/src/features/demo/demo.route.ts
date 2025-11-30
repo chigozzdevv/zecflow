@@ -5,7 +5,6 @@ import {
   demoLoanInboxHandler,
   demoLoanWorkflowHandler,
   demoMedicalWorkflowHandler,
-  demoConfigHandler,
 } from './demo.controller';
 
 const router = Router();
@@ -15,6 +14,5 @@ router.post('/medicals', demoMedicalHandler);
 router.get('/loan-inbox', demoLoanInboxHandler);
 router.get('/loan-workflow', demoLoanWorkflowHandler);
 router.get('/medical-workflow', demoMedicalWorkflowHandler);
-router.get('/config', demoConfigHandler);
 
 export default router;

@@ -42,6 +42,13 @@ export function DemoPage() {
   const [medicalLoading, setMedicalLoading] = useState(false);
 
   type DemoWorkflowNode = { id: string; alias?: string; blockId: string; type: string };
+  type LoanWorkflowResponse = {
+    id: string;
+    name: string;
+    nodes: DemoWorkflowNode[];
+    collectionId?: string | null;
+    datasetId?: string | null;
+  };
   const [loanNodes, setLoanNodes] = useState<DemoWorkflowNode[]>([]);
   const [medicalNodes, setMedicalNodes] = useState<DemoWorkflowNode[]>([]);
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
@@ -49,16 +56,9 @@ export function DemoPage() {
   useEffect(() => {
     (async () => {
       try {
-        const cfg = await request<{ loanCollectionId: string | null; medicalCollectionId: string | null }>(
-          "/demo/config",
-        );
-        setLoanCollectionId(cfg.loanCollectionId ?? null);
-      } catch {
-        // leave collectionId null; error will show on submit
-      }
-      try {
-        const loan = await request<{ nodes: DemoWorkflowNode[] }>("/demo/loan-workflow");
+        const loan = await request<LoanWorkflowResponse>("/demo/loan-workflow");
         setLoanNodes(loan.nodes ?? []);
+        setLoanCollectionId(loan.collectionId ?? null);
       } catch {
         setLoanNodes([]);
       }

@@ -3,8 +3,8 @@ import { HttpStatus } from '@/utils/http-status';
 import { createRun } from '@/features/runs/runs.service';
 import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { DemoSubmissionModel } from './demo.model';
-import { envConfig } from '@/config/env';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
+import { DatasetModel } from '@/features/datasets/datasets.model';
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -150,8 +150,17 @@ export const demoLoanWorkflowHandler = async (_req: Request, res: Response): Pro
     blockId: n.blockId,
     type: n.type,
   }));
+  let collectionId: string | null = null;
+  let datasetId: string | null = null;
+  if (workflow.dataset) {
+    const ds = await DatasetModel.findById(workflow.dataset).lean();
+    if (ds && typeof ds.nildbCollectionId === 'string') {
+      collectionId = ds.nildbCollectionId;
+      datasetId = ds._id.toString();
+    }
+  }
 
-  res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
+  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, collectionId, datasetId });
 };
 
 export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): Promise<void> => {
@@ -177,9 +186,4 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
   res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
 };
 
-export const demoConfigHandler = async (_req: Request, res: Response): Promise<void> => {
-  res.status(HttpStatus.OK).json({
-    loanCollectionId: envConfig.DEMO_LOAN_COLLECTION_ID ?? null,
-    medicalCollectionId: envConfig.DEMO_MEDICAL_COLLECTION_ID ?? null,
-  });
-};
+// no demo config; loan demo uses workflow-bound dataset metadata

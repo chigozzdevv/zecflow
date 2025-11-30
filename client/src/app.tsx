@@ -9,6 +9,7 @@ import { DashboardConnectorsPage } from "@/pages/dashboard/connectors";
 import { DashboardCreditsPage } from "@/pages/dashboard/credits";
 import { DashboardWorkflowPage } from "@/pages/dashboard/workflow";
 import { DashboardBlocksLibraryPage } from "@/pages/dashboard/blocks-library";
+import { DashboardDatasetsPage } from "@/pages/dashboard/datasets";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { NotFoundPage } from "@/pages/not-found";
 import { NillionUserProvider } from "@/context/nillion-user-context";
@@ -28,6 +29,7 @@ function App() {
             <Route path="workflow" element={<DashboardWorkflowPage />} />
             <Route path="runs" element={<DashboardRunsPage />} />
             <Route path="triggers" element={<DashboardTriggersPage />} />
+            <Route path="datasets" element={<DashboardDatasetsPage />} />
             <Route path="connectors" element={<DashboardConnectorsPage />} />
             <Route path="blocks" element={<DashboardBlocksLibraryPage />} />
             <Route path="credits" element={<DashboardCreditsPage />} />

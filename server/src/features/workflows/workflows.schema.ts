@@ -5,6 +5,7 @@ export const createWorkflowSchema = z.object({
     name: z.string().min(1),
     description: z.string().optional(),
     triggerId: z.string().optional(),
+    datasetId: z.string().optional(),
   }),
 });
 

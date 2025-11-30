@@ -13,6 +13,7 @@ interface CreateWorkflowInput {
   description?: string;
   organizationId: string;
   triggerId?: string;
+   datasetId?: string;
 }
 
 const mapCategoryToNodeType = (category: string): WorkflowNode['type'] => {
@@ -91,6 +92,7 @@ export const createWorkflow = async (input: CreateWorkflowInput) => {
     description: input.description,
     organization: input.organizationId,
     trigger: input.triggerId,
+    dataset: input.datasetId,
   });
 };
 

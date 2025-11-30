@@ -7,6 +7,7 @@ export interface WorkflowDocument extends Document {
   status: WorkflowStatus;
   organization: Schema.Types.ObjectId;
   trigger?: Schema.Types.ObjectId;
+   dataset?: Schema.Types.ObjectId;
   blocks: Array<Record<string, unknown>>;
   graph?: WorkflowGraph;
   version?: number;
@@ -19,6 +20,7 @@ const workflowSchema = new Schema<WorkflowDocument>(
     status: { type: String, enum: ['draft', 'published', 'paused'], default: 'draft' },
     organization: { type: Schema.Types.ObjectId, ref: 'Organization', required: true },
     trigger: { type: Schema.Types.ObjectId, ref: 'Trigger' },
+    dataset: { type: Schema.Types.ObjectId, ref: 'Dataset' },
     blocks: {
       type: [
         {

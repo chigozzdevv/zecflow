@@ -30,38 +30,53 @@ type ListTriggersResponse = {
   triggers: TriggerItem[];
 };
 
+type DatasetItem = {
+  _id: string;
+  name: string;
+  status: "active" | "deprecated";
+};
+
+type ListDatasetsResponse = {
+  datasets: DatasetItem[];
+};
+
 type CreateWorkflowResponse = {
   workflow: WorkflowItem;
 };
 
 type PublishWorkflowResponse = {
   workflow: WorkflowItem;
+  integrationSnippet?: string;
 };
 
 export function DashboardWorkflowsPage() {
   const navigate = useNavigate();
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [triggers, setTriggers] = useState<TriggerItem[]>([]);
+  const [datasets, setDatasets] = useState<DatasetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [triggerId, setTriggerId] = useState("");
+  const [datasetId, setDatasetId] = useState("");
   const [creating, setCreating] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [integrationSnippet, setIntegrationSnippet] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function loadAll() {
       try {
         setLoading(true);
         setError(null);
-        const [wfRes, trRes] = await Promise.all([
+        const [wfRes, trRes, dsRes] = await Promise.all([
           authorizedRequest<ListWorkflowsResponse>("/workflows"),
           authorizedRequest<ListTriggersResponse>("/triggers"),
+          authorizedRequest<ListDatasetsResponse>("/datasets"),
         ]);
         if (cancelled) return;
         const list = (wfRes.workflows ?? []).slice().sort((a, b) => {
@@ -71,6 +86,7 @@ export function DashboardWorkflowsPage() {
         });
         setWorkflows(list);
         setTriggers(trRes.triggers ?? []);
+        setDatasets((dsRes.datasets ?? []).filter((d) => d.status === "active"));
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           return;
@@ -83,7 +99,7 @@ export function DashboardWorkflowsPage() {
       }
     }
 
-    load();
+    loadAll();
     return () => {
       cancelled = true;
     };
@@ -114,6 +130,15 @@ export function DashboardWorkflowsPage() {
     setTriggerId(value);
   }
 
+  function handleDatasetSelect(e: React.ChangeEvent<HTMLSelectElement>) {
+    const value = e.target.value;
+    if (value === "__new__") {
+      navigate("/dashboard/datasets");
+      return;
+    }
+    setDatasetId(value);
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
@@ -128,12 +153,14 @@ export function DashboardWorkflowsPage() {
           name: name.trim(),
           description: description.trim() || undefined,
           triggerId: triggerId || undefined,
+          datasetId: datasetId || undefined,
         }),
       });
       setWorkflows((prev) => [res.workflow, ...prev]);
       setName("");
       setDescription("");
       setTriggerId("");
+      setDatasetId("");
       setShowCreate(false);
       navigate("/dashboard/workflow", { state: { workflowId: res.workflow._id } });
     } catch (err) {
@@ -155,6 +182,7 @@ export function DashboardWorkflowsPage() {
         method: "POST",
       });
       setWorkflows((prev) => prev.map((w) => (w._id === id ? res.workflow : w)));
+      setIntegrationSnippet(res.integrationSnippet ?? null);
     } catch (err) {
       if (err instanceof ApiError && err.message) {
         setError(err.message);
@@ -243,6 +271,22 @@ export function DashboardWorkflowsPage() {
                 <option value="__new__">New trigger…</option>
               </select>
             </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-zinc-300">Dataset</label>
+              <select
+                value={datasetId}
+                onChange={handleDatasetSelect}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+              >
+                <option value="">No dataset</option>
+                {datasets.map((d) => (
+                  <option key={d._id} value={d._id}>
+                    {d.name}
+                  </option>
+                ))}
+                <option value="__new__">New dataset…</option>
+              </select>
+            </div>
           </div>
           <div className="flex items-center justify-end gap-3">
             <Button
@@ -259,6 +303,24 @@ export function DashboardWorkflowsPage() {
             </Button>
           </div>
         </form>
+      )}
+
+      {integrationSnippet && (
+        <div className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-zinc-300">Integration snippet</p>
+            <button
+              type="button"
+              onClick={() => setIntegrationSnippet(null)}
+              className="text-[11px] text-zinc-400 hover:text-zinc-200"
+            >
+              Hide
+            </button>
+          </div>
+          <pre className="text-[11px] whitespace-pre overflow-x-auto bg-black/40 rounded-lg p-3 border border-zinc-800">
+            <code>{integrationSnippet}</code>
+          </pre>
+        </div>
       )}
 
       {error && (

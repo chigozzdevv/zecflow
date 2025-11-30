@@ -10,6 +10,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Table,
 } from "lucide-react";
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { icon: Workflow, label: "Workflows", path: "/dashboard/workflows" },
   { icon: Zap, label: "Runs", path: "/dashboard/runs" },
   { icon: Network, label: "Triggers", path: "/dashboard/triggers" },
+   { icon: Table, label: "Datasets", path: "/dashboard/datasets" },
   { icon: Database, label: "Connectors", path: "/dashboard/connectors" },
   { icon: Layers3, label: "Blocks", path: "/dashboard/blocks" },
   { icon: Wallet, label: "Credits", path: "/dashboard/credits" },
