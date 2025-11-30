@@ -59,6 +59,10 @@ type CreateBlockResponse = {
   block: BlockItem;
 };
 
+type PublishWorkflowResponse = {
+  workflow: WorkflowItem;
+};
+
 const BLOCK_CONFIG_TEMPLATES: Record<string, Record<string, unknown>> = {
   "payload-input": {
     path: "payload",
@@ -251,6 +255,8 @@ export function DashboardWorkflowPage() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [configForm, setConfigForm] = useState<Record<string, string>>({});
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const nodeTypes = useMemo(() => ({ workflow: WorkflowNode }), []);
 
   useEffect(() => {
@@ -393,6 +399,28 @@ export function DashboardWorkflowPage() {
 
   const selectedWorkflow = workflows.find((w) => w._id === selectedWorkflowId) || null;
 
+  const handlePublishWorkflow = useCallback(async () => {
+    if (!selectedWorkflow) return;
+    try {
+      setPublishing(true);
+      setPublishError(null);
+      const res = await authorizedRequest<PublishWorkflowResponse>(
+        `/workflows/${encodeURIComponent(selectedWorkflow._id)}/publish`,
+        { method: "POST" },
+      );
+      const updated = res.workflow;
+      setWorkflows((prev) => prev.map((w) => (w._id === updated._id ? updated : w)));
+    } catch (err) {
+      if (err instanceof ApiError && err.message) {
+        setPublishError(err.message);
+      } else {
+        setPublishError("Failed to publish workflow.");
+      }
+    } finally {
+      setPublishing(false);
+    }
+  }, [selectedWorkflow]);
+
   const selectedBlock = useMemo(
     () => (selectedBlockId ? blocks.find((b) => b._id === selectedBlockId) ?? null : null),
     [blocks, selectedBlockId],
@@ -415,6 +443,19 @@ export function DashboardWorkflowPage() {
       setConfigForm({
         source: asString(cfg.source) || "payload",
         path: asString(cfg.path),
+        alias: asString(selectedBlock.alias),
+      });
+    } else if (selectedBlock.type === "connector-request") {
+      setConfigForm({
+        relativePath: asString(cfg.relativePath) || "/",
+        method: asString(cfg.method) || "POST",
+        bodyPath: asString(cfg.bodyPath),
+        responseAlias: asString(cfg.responseAlias),
+        alias: asString(selectedBlock.alias),
+      });
+    } else if (selectedBlock.type === "nilai-llm") {
+      setConfigForm({
+        promptTemplate: asString(cfg.promptTemplate),
         alias: asString(selectedBlock.alias),
       });
     } else if (selectedBlock.type === "logic-if-else") {
@@ -449,6 +490,13 @@ export function DashboardWorkflowPage() {
       } else if (selectedBlock.type === "json-extract") {
         nextCfg.source = (configForm.source || "payload").trim();
         nextCfg.path = configForm.path?.trim() || "";
+      } else if (selectedBlock.type === "connector-request") {
+        nextCfg.relativePath = configForm.relativePath?.trim() || "/";
+        nextCfg.method = (configForm.method || "POST").trim() || "POST";
+        nextCfg.bodyPath = configForm.bodyPath?.trim() || undefined;
+        nextCfg.responseAlias = configForm.responseAlias?.trim() || undefined;
+      } else if (selectedBlock.type === "nilai-llm") {
+        nextCfg.promptTemplate = configForm.promptTemplate?.trim() || "";
       } else if (selectedBlock.type === "logic-if-else") {
         nextCfg.conditionPath = configForm.conditionPath?.trim() || "";
         nextCfg.truePath = configForm.truePath?.trim() || "";
@@ -567,12 +615,6 @@ export function DashboardWorkflowPage() {
       const template = BLOCK_CONFIG_TEMPLATES[type] ?? {};
       const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
       const dependencies = selectedIds.length === 1 ? [selectedIds[0]] : [];
-
-      const definition = definitions.find((d) => d.id === type);
-      if (definition?.requiresConnector) {
-        setBlocksError("Blocks that require connectors are not yet supported in this builder.");
-        return;
-      }
 
       try {
         const res = await authorizedRequest<CreateBlockResponse>("/blocks", {
@@ -726,20 +768,19 @@ export function DashboardWorkflowPage() {
               {blocksError}
             </div>
           )}
+          {publishError && (
+            <div className="rounded-2xl border border-red-500/40 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+              {publishError}
+            </div>
+          )}
           {selectedWorkflow && (
             <div className="rounded-2xl border border-white/8 bg-zinc-900/70 p-3 space-y-2">
               <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-0.5">
                   <h3 className="text-sm font-semibold text-white">Builder</h3>
-                  <p className="text-[11px] text-zinc-400 max-w-xl">
-                    Publishing is only available from the Workflows list, not inside this builder.
-                    Use this page to edit the graph, then go back to <span className="font-medium">Workflows</span>
-                    to change lifecycle (draft → published → paused) and to view the integration snippet.
-                  </p>
                 </div>
                 {workflows.length > 0 && (
-                  <div className="space-y-1 text-xs">
-                    <div className="text-[11px] text-zinc-400">Workflow</div>
+                  <div className="flex items-center gap-2 text-xs">
                     <select
                       value={selectedWorkflowId}
                       onChange={(e) => setSelectedWorkflowId(e.target.value)}
@@ -751,6 +792,14 @@ export function DashboardWorkflowPage() {
                         </option>
                       ))}
                     </select>
+                    <button
+                      type="button"
+                      onClick={handlePublishWorkflow}
+                      disabled={publishing || !selectedWorkflow || selectedWorkflow.status === "published"}
+                      className="inline-flex items-center justify-center rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-1.5 text-[11px] font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-60"
+                    >
+                      {publishing ? "Publishing…" : selectedWorkflow?.status === "published" ? "Published" : "Publish"}
+                    </button>
                   </div>
                 )}
               </div>
@@ -813,6 +862,62 @@ export function DashboardWorkflowPage() {
                             className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
                           />
                         </div>
+                        {selectedBlock.type === "connector-request" && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Relative path</label>
+                              <input
+                                value={configForm.relativePath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, relativePath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="/loan/result"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Method</label>
+                              <select
+                                value={configForm.method ?? "POST"}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, method: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              >
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                                <option value="PATCH">PATCH</option>
+                                <option value="DELETE">DELETE</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Body path</label>
+                              <input
+                                value={configForm.bodyPath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, bodyPath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="memory"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Response alias</label>
+                              <input
+                                value={configForm.responseAlias ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, responseAlias: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="connectorResponse"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {selectedBlock.type === "nilai-llm" && (
+                          <div className="space-y-1">
+                            <label className="block text-[11px] text-zinc-300">Prompt template</label>
+                            <textarea
+                              value={configForm.promptTemplate ?? ""}
+                              onChange={(e) => setConfigForm((f) => ({ ...f, promptTemplate: e.target.value }))}
+                              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40 min-h-[80px]"
+                              placeholder="Explain the loan decision using {{memory.loanRecord.result.income}}, {{memory.loanRecord.result.existingDebt}}, {{memory.loanRecord.result.requestedAmount}}, {{memory.dti.result}}, {{memory.approved.result}}"
+                            />
+                          </div>
+                        )}
                         {selectedBlock.type === "payload-input" && (
                           <div className="space-y-1">
                             <label className="block text-[11px] text-zinc-300">Path</label>

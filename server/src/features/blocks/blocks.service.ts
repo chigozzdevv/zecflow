@@ -4,6 +4,7 @@ import { AppError } from '@/shared/errors/app-error';
 import { HttpStatus } from '@/utils/http-status';
 import { ConnectorModel } from '@/features/connectors/connectors.model';
 import { WorkflowModel } from '@/features/workflows/workflows.model';
+import { TriggerModel } from '@/features/triggers/triggers.model';
 import { Types } from 'mongoose';
 
 interface CreateBlockInput {
@@ -55,12 +56,23 @@ export const createBlock = async (input: CreateBlockInput) => {
   }
 
   let connectorRef: Types.ObjectId | undefined;
+
   if (input.connectorId) {
     const connector = await ConnectorModel.findById(input.connectorId);
     if (!connector || connector.organization.toString() !== input.organizationId) {
       throw new AppError('Connector not found for organization', HttpStatus.NOT_FOUND);
     }
     connectorRef = connector._id as Types.ObjectId;
+  }
+  
+  if (definition.requiresConnector && !connectorRef && workflow.trigger) {
+    const trigger = await TriggerModel.findById(workflow.trigger);
+    if (trigger && trigger.connector) {
+      const connector = await ConnectorModel.findById(trigger.connector);
+      if (connector && connector.organization.toString() === input.organizationId) {
+        connectorRef = connector._id as Types.ObjectId;
+      }
+    }
   }
 
   if (definition.requiresConnector && !connectorRef) {
