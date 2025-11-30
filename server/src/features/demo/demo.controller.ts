@@ -6,6 +6,11 @@ import { DemoSubmissionModel } from './demo.model';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { DatasetModel } from '@/features/datasets/datasets.model';
 
+export const demoLoanResultHandler = async (req: Request, res: Response): Promise<void> => {
+  const body = req.body ?? {};
+  res.status(HttpStatus.OK).json({ received: true, body });
+};
+
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
   try {
     const { stateKey } = req.body ?? {};
