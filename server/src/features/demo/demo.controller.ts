@@ -6,26 +6,14 @@ import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { DemoSubmissionModel } from './demo.model';
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
-  const { fullName, income, existingDebt, age, country, requestedAmount } = req.body ?? {};
-
-  if (!fullName || typeof income !== 'number' || typeof existingDebt !== 'number' || typeof age !== 'number') {
-    res.status(HttpStatus.BAD_REQUEST).json({ message: 'Invalid payload' });
-    return;
-  }
-
   try {
-    const stateKey = await nildbService.storeState('demo-loan-app', {
-      data: { fullName, income, existingDebt, age, country, requestedAmount },
-    }, { encryptAll: true });
-    await DemoSubmissionModel.create({
-      stateKey,
-      fullName,
-      income,
-      existingDebt,
-      age,
-      country,
-      requestedAmount,
-    });
+    const { stateKey } = req.body ?? {};
+    if (typeof stateKey !== 'string' || !stateKey.includes(':')) {
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey is required and must be "collection:document"' });
+      return;
+    }
+
+    await DemoSubmissionModel.create({ stateKey });
 
     res.status(HttpStatus.OK).json({
       stateKey,
@@ -72,12 +60,6 @@ export const demoLoanInboxHandler = async (req: Request, res: Response): Promise
         payload: {
           source: 'demo-loan-app',
           stateKey: item.stateKey,
-          fullName: item.fullName,
-          income: item.income,
-          existingDebt: item.existingDebt,
-          age: item.age,
-          country: item.country,
-          requestedAmount: item.requestedAmount,
         },
       }),
     ),
@@ -88,12 +70,6 @@ export const demoLoanInboxHandler = async (req: Request, res: Response): Promise
       runId: run.id,
       submissionId: items[idx]._id,
       stateKey: items[idx].stateKey,
-      fullName: items[idx].fullName,
-      income: items[idx].income,
-      existingDebt: items[idx].existingDebt,
-      age: items[idx].age,
-      country: items[idx].country,
-      requestedAmount: items[idx].requestedAmount,
     })),
   );
 };

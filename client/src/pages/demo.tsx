@@ -3,6 +3,7 @@ import { request } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useEffect } from "react";
+import { useNillionUser } from "@/context/nillion-user-context";
 
 type LoanSubmissionResponse = {
   stateKey: string;
@@ -18,6 +19,7 @@ type MedicalDecision = {
 };
 
 export function DemoPage() {
+  const { client: nillionClient, did, connect, initializing } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
     fullName: "",
     income: "",
@@ -64,6 +66,12 @@ export function DemoPage() {
     e.preventDefault();
     setLoanError(null);
     setLoanResult(null);
+
+    if (!nillionClient || !did) {
+      setLoanError("Connect your wallet to Nillion first.");
+      return;
+    }
+
     setLoanLoading(true);
     const income = Number(loanForm.income);
     const existingDebt = Number(loanForm.existingDebt);
@@ -74,18 +82,48 @@ export function DemoPage() {
       return;
     }
     try {
+      // Create user-owned encrypted record in NilDB via wallet-based user client
+      const collectionId = import.meta.env.VITE_DEMO_LOAN_COLLECTION_ID as string | undefined;
+      if (!collectionId) {
+        throw new Error("VITE_DEMO_LOAN_COLLECTION_ID is not configured");
+      }
+
+      const createResponse = await nillionClient.createData({
+        owner: did,
+        collection: collectionId,
+        data: [
+          {
+            fullName: loanForm.fullName,
+            income,
+            existingDebt,
+            age,
+            country: loanForm.country,
+            requestedAmount,
+          },
+        ],
+        acl: {
+          grantee: did,
+          read: true,
+          write: true,
+          execute: true,
+        },
+      });
+
+      const firstNode = Object.values(createResponse)[0];
+      const createdIds = firstNode?.data?.created ?? [];
+      const documentId = createdIds[0];
+      if (!documentId) {
+        throw new Error("NilDB did not return a created document id");
+      }
+
+      const stateKey = `${collectionId}:${documentId}`;
+
       const res = await request<LoanSubmissionResponse>("/demo/loan-app", {
         method: "POST",
-        body: JSON.stringify({
-          fullName: loanForm.fullName,
-          income,
-          existingDebt,
-          age,
-          country: loanForm.country,
-          requestedAmount,
-        }),
+        body: JSON.stringify({ stateKey }),
       });
-      setLoanResult(res);
+
+      setLoanResult({ ...res, stateKey });
     } catch (err: any) {
       setLoanError(err instanceof Error ? err.message : "Demo failed");
     } finally {
@@ -144,6 +182,17 @@ export function DemoPage() {
             Submit a sample loan application. Inputs are stored in Nillion-backed state; ZecFlow only uses the decision summary
             for automation signals.
           </p>
+          <div className="mb-4 text-xs text-zinc-300 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => connect().catch((err) => console.error(err))}
+              disabled={initializing}
+              className="px-3 py-1.5 rounded border border-[#6758c1] bg-[#6758c1]/10 hover:bg-[#6758c1]/20 disabled:opacity-60"
+            >
+              {did ? "Wallet connected to Nillion" : initializing ? "Connecting…" : "Connect wallet to Nillion"}
+            </button>
+            {did && <span className="text-[11px] text-zinc-500 truncate">DID: {did}</span>}
+          </div>
           <form onSubmit={handleLoanSubmit} className="space-y-4 max-w-xl">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input
