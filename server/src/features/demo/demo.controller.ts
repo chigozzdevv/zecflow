@@ -165,7 +165,9 @@ export const demoLoanWorkflowHandler = async (_req: Request, res: Response): Pro
     }
   }
 
-  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, collectionId, datasetId });
+  const builderDid = await nildbService.getBuilderDid();
+
+  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, collectionId, datasetId, builderDid });
 };
 
 export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): Promise<void> => {
@@ -190,5 +192,3 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
 
   res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
 };
-
-// no demo config; loan demo uses workflow-bound dataset metadata

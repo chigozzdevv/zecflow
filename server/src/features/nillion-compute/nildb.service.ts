@@ -4,6 +4,21 @@ import { logger } from '@/utils/logger';
 class NilDBService {
   private builderPromise?: Promise<any>;
   private registeredCollections = new Set<string>();
+  private cachedBuilderDid?: string;
+
+  async getBuilderDid(): Promise<string | null> {
+    if (this.cachedBuilderDid) return this.cachedBuilderDid;
+
+    try {
+      const builder = await this.getBuilder();
+      const did = await builder.getDid();
+      this.cachedBuilderDid = did.didString;
+      return this.cachedBuilderDid ?? null;
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to get builder DID');
+      return null;
+    }
+  }
 
   private async getBuilder(): Promise<any> {
     if (this.builderPromise) return this.builderPromise;

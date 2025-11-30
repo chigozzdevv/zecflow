@@ -243,6 +243,7 @@ export function DashboardWorkflowPage() {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>(initialWorkflowIdFromState);
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
+  const blocksRef = useRef<BlockItem[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [blocksLoading, setBlocksLoading] = useState(false);
@@ -258,6 +259,10 @@ export function DashboardWorkflowPage() {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const nodeTypes = useMemo(() => ({ workflow: WorkflowNode }), []);
+
+  useEffect(() => {
+    blocksRef.current = blocks;
+  }, [blocks]);
 
   useEffect(() => {
     let cancelled = false;
@@ -365,13 +370,26 @@ export function DashboardWorkflowPage() {
         const newEdges: Edge[] = [];
         for (const block of list) {
           if (!block.dependencies || !block.dependencies.length) continue;
+          const cfg = (block.config ?? {}) as Record<string, unknown>;
+          const inputSlots = (cfg.__inputSlots ?? {}) as Record<string, { source: string; output?: string }>;
+          const sourceToHandle: Record<string, string> = {};
+          for (const [handle, slot] of Object.entries(inputSlots)) {
+            if (slot?.source) {
+              sourceToHandle[slot.source] = handle;
+            }
+          }
+          
           for (const dep of block.dependencies) {
             const source = String(dep);
             const target = block._id;
+            const targetHandle = sourceToHandle[source] || undefined;
+            const sourceHandle = targetHandle ? inputSlots[targetHandle]?.output : undefined;
             newEdges.push({
-              id: `${source}-${target}`,
+              id: `${source}-${target}${targetHandle ? `-${targetHandle}` : ""}`,
               source,
               target,
+              sourceHandle,
+              targetHandle,
               type: "smoothstep",
             });
           }
@@ -543,7 +561,7 @@ export function DashboardWorkflowPage() {
   const onConnect = useCallback(
     async (connection: Connection) => {
       if (!connection.source || !connection.target) return;
-      const targetBlock = blocks.find((b) => b._id === connection.target);
+      const targetBlock = blocksRef.current.find((b) => b._id === connection.target);
       if (!targetBlock) return;
 
       const existingDeps = targetBlock.dependencies ?? [];
@@ -591,7 +609,7 @@ export function DashboardWorkflowPage() {
         // ignore for now
       }
     },
-    [blocks, setEdges],
+    [setEdges],
   );
 
   const onDragStartBlock = (event: React.DragEvent<HTMLButtonElement>, type: string) => {

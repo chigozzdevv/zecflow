@@ -65,13 +65,28 @@ const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> 
 
   for (const block of blocks as any[]) {
     if (!block.dependencies || !Array.isArray(block.dependencies)) continue;
+    
+    const config = (block.config ?? {}) as Record<string, any>;
+    const inputSlots = (config.__inputSlots ?? {}) as Record<string, { source: string; output?: string }>;
+    const sourceToHandle: Record<string, string> = {};
+    for (const [handle, slot] of Object.entries(inputSlots)) {
+      if (slot?.source) {
+        sourceToHandle[slot.source] = handle;
+      }
+    }
+    
     for (const dep of block.dependencies) {
       const sourceId = String(dep);
       const targetId = String(block._id);
+      const targetHandle = sourceToHandle[sourceId];
+      const sourceHandle = targetHandle ? inputSlots[targetHandle]?.output : undefined;
+      
       edges.push({
-        id: `${sourceId}->${targetId}`,
+        id: `${sourceId}->${targetId}${targetHandle ? `-${targetHandle}` : ''}`,
         source: sourceId,
         target: targetId,
+        sourceHandle,
+        targetHandle,
       });
     }
   }

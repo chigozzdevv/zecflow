@@ -6,6 +6,7 @@ import { DatasetModel } from '@/features/datasets/datasets.model';
 import { TriggerModel } from '@/features/triggers/triggers.model';
 import { ConnectorModel } from '@/features/connectors/connectors.model';
 import { decryptConnectorConfig } from '@/features/connectors/connectors.security';
+import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { createWorkflow, listWorkflows, setWorkflowStatus, deleteWorkflow } from './workflows.service';
 
 export const createWorkflowHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
@@ -120,6 +121,8 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
         }
       }
 
+      const builderDid = await nildbService.getBuilderDid();
+
       integrationSnippet = [
         `import { useState } from 'react';`,
         `import type { SecretVaultUserClient } from '@nillion/secretvaults';`,
@@ -132,6 +135,9 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
         `  nillionClient: SecretVaultUserClient;`,
         `  ownerDid: string;`,
         `};`,
+        ``,
+        `// Builder DID for granting server access to user data`,
+        `const BUILDER_DID = '${builderDid ?? 'YOUR_BUILDER_DID'}';`,
         ``,
         `export function ZecflowWorkflowForm({ nillionClient, ownerDid }: Props) {`,
         `  const [values, setValues] = useState<FormValues>({`,
@@ -154,7 +160,7 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
         `        owner: ownerDid,`,
         `        collection: '${collectionId}',`,
         `        data: [payload],`,
-        `        acl: { grantee: ownerDid, read: true, write: true, execute: true },`,
+        `        acl: { grantee: BUILDER_DID, read: true, write: false, execute: true },`,
         `      });`,
         `      const firstNode = Object.values(createResponse)[0] as any;`,
         `      const createdIds = firstNode?.data?.created ?? [];`,

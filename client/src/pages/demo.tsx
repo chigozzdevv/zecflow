@@ -48,10 +48,12 @@ export function DemoPage() {
     nodes: DemoWorkflowNode[];
     collectionId?: string | null;
     datasetId?: string | null;
+    builderDid?: string | null;
   };
   const [loanNodes, setLoanNodes] = useState<DemoWorkflowNode[]>([]);
   const [medicalNodes, setMedicalNodes] = useState<DemoWorkflowNode[]>([]);
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
+  const [builderDid, setBuilderDid] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -59,6 +61,7 @@ export function DemoPage() {
         const loan = await request<LoanWorkflowResponse>("/demo/loan-workflow");
         setLoanNodes(loan.nodes ?? []);
         setLoanCollectionId(loan.collectionId ?? null);
+        setBuilderDid(loan.builderDid ?? null);
       } catch {
         setLoanNodes([]);
       }
@@ -86,6 +89,11 @@ export function DemoPage() {
       return;
     }
 
+    if (!builderDid) {
+      setLoanError("Builder DID not available. Cannot grant server access to your data.");
+      return;
+    }
+
     setLoanLoading(true);
     const income = Number(loanForm.income);
     const existingDebt = Number(loanForm.existingDebt);
@@ -96,7 +104,6 @@ export function DemoPage() {
       return;
     }
     try {
-      // Create user-owned encrypted record in NilDB via wallet-based user client
       const createResponse = await nillionClient.createData({
         owner: did,
         collection: loanCollectionId,
@@ -111,9 +118,9 @@ export function DemoPage() {
           },
         ],
         acl: {
-          grantee: did,
+          grantee: builderDid,
           read: true,
-          write: true,
+          write: false,
           execute: true,
         },
       });
