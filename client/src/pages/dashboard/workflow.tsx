@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -237,6 +237,7 @@ function WorkflowNode({ id, data }: NodeProps<WorkflowNodeData>) {
 
 export function DashboardWorkflowPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const initialWorkflowIdFromState =
     ((location.state as { workflowId?: string } | null | undefined)?.workflowId as string | undefined) ?? "";
   const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
@@ -428,6 +429,7 @@ export function DashboardWorkflowPage() {
       );
       const updated = res.workflow;
       setWorkflows((prev) => prev.map((w) => (w._id === updated._id ? updated : w)));
+      navigate("/dashboard/workflows");
     } catch (err) {
       if (err instanceof ApiError && err.message) {
         setPublishError(err.message);
@@ -437,7 +439,7 @@ export function DashboardWorkflowPage() {
     } finally {
       setPublishing(false);
     }
-  }, [selectedWorkflow]);
+  }, [selectedWorkflow, navigate]);
 
   const selectedBlock = useMemo(
     () => (selectedBlockId ? blocks.find((b) => b._id === selectedBlockId) ?? null : null),

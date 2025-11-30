@@ -14,13 +14,19 @@ export interface BlockDefinition {
 }
 
 const valuePathSchema = z.string().min(1, 'Use dot notation paths');
+
+const inputSlotSchema = z.object({
+  source: z.string(),
+  output: z.string().optional(),
+}).optional();
+
 const conditionalFields = {
   runIfPath: z.string().optional(),
   runIfEquals: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  __inputSlots: z.record(z.string(), inputSlotSchema).optional(),
 };
 const withCondition = (schema: z.ZodObject<any, any>) =>
   schema
-    .passthrough()
     .merge(z.object(conditionalFields))
     .passthrough();
 
