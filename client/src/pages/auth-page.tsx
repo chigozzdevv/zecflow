@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api-client";
 import { authService } from "@/services/auth";
 
@@ -10,6 +10,14 @@ type AuthMode = "signin" | "signup";
 export function AuthPage() {
   const [mode, setMode] = useState<AuthMode>("signin");
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = localStorage.getItem("zecflow_access_token");
+    if (token) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white selection:bg-purple-500/30 flex items-center justify-center px-4 py-10">

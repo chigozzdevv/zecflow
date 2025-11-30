@@ -47,6 +47,9 @@ export function DashboardConnectorsPage() {
   const [githubWebhookSecret, setGithubWebhookSecret] = useState("");
   const [twitterBearerToken, setTwitterBearerToken] = useState("");
   const [twitterHandle, setTwitterHandle] = useState("");
+  const [customHttpAuthMode, setCustomHttpAuthMode] = useState<"none" | "bearer" | "api-key" | "custom">("none");
+  const [customHttpAuthValue, setCustomHttpAuthValue] = useState("");
+  const [customHttpHeaderName, setCustomHttpHeaderName] = useState("");
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -108,6 +111,9 @@ export function DashboardConnectorsPage() {
     setGithubWebhookSecret("");
     setTwitterBearerToken("");
     setTwitterHandle("");
+    setCustomHttpAuthMode("none");
+    setCustomHttpAuthValue("");
+    setCustomHttpHeaderName("");
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -124,6 +130,22 @@ export function DashboardConnectorsPage() {
       }
     } else if (type === "custom-http") {
       config.baseUrl = baseUrl.trim();
+      const mode = customHttpAuthMode;
+      const value = customHttpAuthValue.trim();
+      const name = customHttpHeaderName.trim();
+      const headers: Record<string, string> = {};
+
+      if (mode === "bearer" && value) {
+        headers["Authorization"] = `Bearer ${value}`;
+      } else if (mode === "api-key" && value) {
+        headers["X-Api-Key"] = value;
+      } else if (mode === "custom" && name && value) {
+        headers[name] = value;
+      }
+
+      if (Object.keys(headers).length > 0) {
+        config.headers = headers;
+      }
     } else if (type === "zcash-viewkey") {
       config.address = zcashAddress.trim();
       config.viewingKey = zcashViewingKey.trim();
@@ -258,16 +280,67 @@ export function DashboardConnectorsPage() {
               )}
 
               {type === "custom-http" && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-medium text-zinc-300">Base URL</label>
-                  <input
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    required
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
-                    placeholder="https://api.example.com"
-                  />
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-zinc-300">Base URL</label>
+                    <input
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+                      placeholder="https://api.example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-zinc-300">Auth / header</label>
+                    <select
+                      value={customHttpAuthMode}
+                      onChange={(e) => setCustomHttpAuthMode(e.target.value as any)}
+                      className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+                    >
+                      <option value="none">None</option>
+                      <option value="bearer">Authorization: Bearer &lt;token&gt;</option>
+                      <option value="api-key">X-Api-Key</option>
+                      <option value="custom">Custom header</option>
+                    </select>
+                  </div>
+                  {customHttpAuthMode !== "none" && (
+                    <div className="space-y-2">
+                      {customHttpAuthMode === "custom" && (
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-zinc-300">Header name</label>
+                          <input
+                            value={customHttpHeaderName}
+                            onChange={(e) => setCustomHttpHeaderName(e.target.value)}
+                            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+                            placeholder="X-Custom-Header"
+                          />
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-zinc-300">
+                          {customHttpAuthMode === "bearer"
+                            ? "Token"
+                            : customHttpAuthMode === "api-key"
+                            ? "API key value"
+                            : "Header value"}
+                        </label>
+                        <input
+                          value={customHttpAuthValue}
+                          onChange={(e) => setCustomHttpAuthValue(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
+                          placeholder={
+                            customHttpAuthMode === "bearer"
+                              ? "your-jwt-or-api-token"
+                              : customHttpAuthMode === "api-key"
+                              ? "your-api-key"
+                              : "header value"
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {type === "zcash-viewkey" && (

@@ -9,6 +9,7 @@ import runsRouter from '@/features/runs/runs.route';
 import nillionRouter from '@/features/nillion-compute/nillion-compute.route';
 import zcashRouter from '@/features/zcash-execution/zcash-execution.route';
 import billingRouter from '@/features/billing/billing.route';
+import demoRouter from '@/features/demo/demo.route';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/runs', runsRouter);
 router.use('/nillion', nillionRouter);
 router.use('/zcash', zcashRouter);
 router.use('/billing', billingRouter);
+router.use('/demo', demoRouter);
 
 export default router;

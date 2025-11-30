@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Play } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import BackgroundGrid from "./background-grid";
 
 export function Hero() {
@@ -36,9 +37,16 @@ export function Hero() {
               Start Building
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
-            <Button size="lg" variant="outline" className="w-full sm:w-auto border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-800 h-12 px-8 text-base">
-              <Play className="mr-2 h-4 w-4" />
-              Run a Demo
+            <Button
+              asChild
+              size="lg"
+              variant="outline"
+              className="w-full sm:w-auto border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-800 h-12 px-8 text-base"
+            >
+              <Link to="/demo">
+                <Play className="mr-2 h-4 w-4" />
+                Run a Demo
+              </Link>
             </Button>
           </div>
         </div>

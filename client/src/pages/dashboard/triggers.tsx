@@ -44,13 +44,7 @@ type CreateTriggerResponse = {
   trigger: TriggerItem;
 };
 
-type CreateConnectorResponse = {
-  connector: {
-    _id: string;
-    name: string;
-    type: string;
-  };
-};
+// Connector creation response type was used for auto-creating HTTP connectors; no longer needed.
 
 export function DashboardTriggersPage() {
   const navigate = useNavigate();
@@ -195,7 +189,6 @@ export function DashboardTriggersPage() {
     }
 
     const config: Record<string, unknown> = {};
-    let httpPollBaseUrl: string | null = null;
 
     if (type === "http-webhook") {
       config.path = httpPath || "/";
@@ -248,25 +241,19 @@ export function DashboardTriggersPage() {
     } else if (type === "custom-http-poll") {
       const endpoint = pollRelativePath.trim();
       if (!endpoint) {
-        setError("Endpoint URL is required for HTTP poll triggers.");
+        setError("Endpoint path is required for HTTP poll triggers.");
         return;
       }
-      try {
-        const url = new URL(endpoint);
-        httpPollBaseUrl = url.origin;
-        config.relativePath = url.pathname || "/";
-        if (url.searchParams.size > 0) {
-          const queryParams: Record<string, string> = {};
-          url.searchParams.forEach((value, key) => {
-            queryParams[key] = value;
-          });
-          config.queryParams = queryParams;
-        }
-      } catch {
-        setError("Endpoint URL is invalid.");
+
+      if (!connectorId) {
+        setError("HTTP connector (with base URL and auth) is required for HTTP poll triggers.");
         return;
       }
+
+      const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+      config.relativePath = path;
       config.method = pollMethod;
+
       const interval = Number(pollIntervalSec);
       if (!Number.isNaN(interval)) {
         config.pollIntervalSec = interval;
@@ -281,25 +268,7 @@ export function DashboardTriggersPage() {
       setCreating(true);
       setError(null);
 
-      let connectorIdToUse = connectorId;
-
-      if (type === "custom-http-poll" && !connectorIdToUse && httpPollBaseUrl) {
-        try {
-          const parsed = new URL(httpPollBaseUrl);
-          const connectorName = `HTTP ${parsed.host}`;
-          const connRes = await authorizedRequest<CreateConnectorResponse>("/connectors", {
-            method: "POST",
-            body: JSON.stringify({
-              name: connectorName,
-              type: "custom-http",
-              config: { baseUrl: httpPollBaseUrl },
-            }),
-          });
-          connectorIdToUse = connRes.connector._id;
-        } catch {
-          // fall back to no connector; backend will validate
-        }
-      }
+      const connectorIdToUse = connectorId;
 
       const body: Record<string, unknown> = {
         name: name.trim(),
@@ -566,12 +535,12 @@ export function DashboardTriggersPage() {
               {type === "custom-http-poll" && (
                 <>
                   <div className="space-y-2">
-                    <label className="block text-xs font-medium text-zinc-300">Endpoint URL</label>
+                    <label className="block text-xs font-medium text-zinc-300">Endpoint path</label>
                     <input
                       value={pollRelativePath}
                       onChange={(e) => setPollRelativePath(e.target.value)}
                       className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-[#6758c1] focus:ring-2 focus:ring-[#6758c1]/30 transition-all"
-                      placeholder="https://api.example.com/orders?status=pending"
+                      placeholder="/demo/loan-inbox or /v1/orders?status=pending"
                     />
                   </div>
                   <div className="space-y-2">

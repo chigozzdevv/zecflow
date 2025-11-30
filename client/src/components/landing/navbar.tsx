@@ -20,12 +20,12 @@ export function Navbar() {
           {/* Desktop Navigation */}
           <div className="hidden md:block">
             <div className="flex items-center gap-8">
-              <a
-                href="#run-a-demo"
+              <Link
+                to="/demo"
                 className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
               >
                 Run a Demo
-              </a>
+              </Link>
               <a href="#why-zecflow" className="text-sm font-medium text-zinc-400 hover:text-white transition-colors">
                 Why ZecFlow
               </a>
@@ -77,12 +77,13 @@ export function Navbar() {
       {isMenuOpen && (
         <div className="md:hidden bg-zinc-900 border-b border-zinc-800">
           <div className="space-y-1 px-2 pb-3 pt-2 sm:px-3">
-            <a
-              href="#run-a-demo"
+            <Link
+              to="/demo"
               className="block rounded-md px-3 py-2 text-base font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              onClick={() => setIsMenuOpen(false)}
             >
               Run a Demo
-            </a>
+            </Link>
             <a
               href="#why-zecflow"
               className="block rounded-md px-3 py-2 text-base font-medium text-zinc-400 hover:bg-zinc-800 hover:text-white"

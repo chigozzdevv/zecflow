@@ -12,6 +12,7 @@ import { DashboardBlocksLibraryPage } from "@/pages/dashboard/blocks-library";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { NotFoundPage } from "@/pages/not-found";
 import { NillionUserProvider } from "@/context/nillion-user-context";
+import { DemoPage } from "@/pages/demo";
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<LandingPage />} />
+          <Route path="/demo" element={<DemoPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardOverviewPage />} />

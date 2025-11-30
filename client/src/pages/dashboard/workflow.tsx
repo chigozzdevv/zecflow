@@ -247,6 +247,10 @@ export function DashboardWorkflowPage() {
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState<Record<string, string>>({});
   const nodeTypes = useMemo(() => ({ workflow: WorkflowNode }), []);
 
   useEffect(() => {
@@ -389,6 +393,105 @@ export function DashboardWorkflowPage() {
 
   const selectedWorkflow = workflows.find((w) => w._id === selectedWorkflowId) || null;
 
+  const selectedBlock = useMemo(
+    () => (selectedBlockId ? blocks.find((b) => b._id === selectedBlockId) ?? null : null),
+    [blocks, selectedBlockId],
+  );
+
+  useEffect(() => {
+    if (!selectedBlock) {
+      setConfigForm({});
+      setConfigError(null);
+      return;
+    }
+    const cfg = (selectedBlock.config ?? {}) as Record<string, unknown>;
+    const asString = (v: unknown): string => (typeof v === "string" ? v : "");
+    if (selectedBlock.type === "payload-input") {
+      setConfigForm({
+        path: asString(cfg.path),
+        alias: asString(selectedBlock.alias),
+      });
+    } else if (selectedBlock.type === "json-extract") {
+      setConfigForm({
+        source: asString(cfg.source) || "payload",
+        path: asString(cfg.path),
+        alias: asString(selectedBlock.alias),
+      });
+    } else if (selectedBlock.type === "logic-if-else") {
+      setConfigForm({
+        conditionPath: asString(cfg.conditionPath),
+        truePath: asString(cfg.truePath),
+        falsePath: asString(cfg.falsePath),
+        alias: asString(selectedBlock.alias),
+      });
+    } else if (selectedBlock.type.startsWith("math-")) {
+      setConfigForm({
+        aPath: asString(cfg.aPath),
+        bPath: asString(cfg.bPath),
+        alias: asString(selectedBlock.alias),
+      });
+    } else {
+      setConfigForm({ alias: asString(selectedBlock.alias) });
+    }
+    setConfigError(null);
+  }, [selectedBlock]);
+
+  const handleSaveConfig = useCallback(async () => {
+    if (!selectedBlock) return;
+    try {
+      setConfigSaving(true);
+      setConfigError(null);
+      const prevCfg = (selectedBlock.config ?? {}) as Record<string, unknown>;
+      const nextCfg: Record<string, unknown> = { ...prevCfg };
+
+      if (selectedBlock.type === "payload-input") {
+        nextCfg.path = configForm.path?.trim() || "payload";
+      } else if (selectedBlock.type === "json-extract") {
+        nextCfg.source = (configForm.source || "payload").trim();
+        nextCfg.path = configForm.path?.trim() || "";
+      } else if (selectedBlock.type === "logic-if-else") {
+        nextCfg.conditionPath = configForm.conditionPath?.trim() || "";
+        nextCfg.truePath = configForm.truePath?.trim() || "";
+        nextCfg.falsePath = configForm.falsePath?.trim() || "";
+      } else if (selectedBlock.type.startsWith("math-")) {
+        nextCfg.aPath = configForm.aPath?.trim() || "";
+        nextCfg.bPath = configForm.bPath?.trim() || "";
+      }
+
+      const alias = configForm.alias?.trim() || undefined;
+
+      const res = await authorizedRequest<CreateBlockResponse>(`/blocks/${selectedBlock._id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ config: nextCfg, alias }),
+      });
+      const updated = res.block;
+      setBlocks((prev) => prev.map((b) => (b._id === updated._id ? updated : b)));
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === updated._id
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  label: updated.alias || n.data.label,
+                },
+              }
+            : n,
+        ),
+      );
+      // Clear selection after successful save so the panel closes
+      setSelectedBlockId(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.message) {
+        setConfigError(err.message);
+      } else {
+        setConfigError("Failed to save config.");
+      }
+    } finally {
+      setConfigSaving(false);
+    }
+  }, [selectedBlock, configForm, setBlocks, setNodes]);
+
   const onConnect = useCallback(
     async (connection: Connection) => {
       if (!connection.source || !connection.target) return;
@@ -464,6 +567,12 @@ export function DashboardWorkflowPage() {
       const template = BLOCK_CONFIG_TEMPLATES[type] ?? {};
       const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
       const dependencies = selectedIds.length === 1 ? [selectedIds[0]] : [];
+
+      const definition = definitions.find((d) => d.id === type);
+      if (definition?.requiresConnector) {
+        setBlocksError("Blocks that require connectors are not yet supported in this builder.");
+        return;
+      }
 
       try {
         const res = await authorizedRequest<CreateBlockResponse>("/blocks", {
@@ -662,7 +771,7 @@ export function DashboardWorkflowPage() {
                       </button>
                     ))}
                 </div>
-                <div className="flex-1">
+                <div className="flex-1 flex">
                   <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -671,6 +780,7 @@ export function DashboardWorkflowPage() {
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
                     onInit={setReactFlowInstance}
+                    onNodeClick={(_, node) => setSelectedBlockId(node.id)}
                     fitView
                     onDrop={onDrop}
                     onDragOver={onDragOver}
@@ -685,6 +795,118 @@ export function DashboardWorkflowPage() {
                     />
                     <Controls />
                   </ReactFlow>
+                  {selectedBlock && (
+                    <div className="w-64 border-l border-white/10 p-3 space-y-2 bg-zinc-950/80">
+                      <div className="text-xs font-semibold text-zinc-300 mb-1">Block config</div>
+                      <div className="space-y-2 text-[11px] text-zinc-200">
+                        <div className="font-medium">{selectedBlock.type}</div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] text-zinc-300">Alias</label>
+                          <input
+                            value={configForm.alias ?? ""}
+                            onChange={(e) => setConfigForm((f) => ({ ...f, alias: e.target.value }))}
+                            className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                          />
+                        </div>
+                        {selectedBlock.type === "payload-input" && (
+                          <div className="space-y-1">
+                            <label className="block text-[11px] text-zinc-300">Path</label>
+                            <input
+                              value={configForm.path ?? ""}
+                              onChange={(e) => setConfigForm((f) => ({ ...f, path: e.target.value }))}
+                              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              placeholder="payload"
+                            />
+                          </div>
+                        )}
+                        {selectedBlock.type === "json-extract" && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Source</label>
+                              <select
+                                value={configForm.source ?? "payload"}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, source: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              >
+                                <option value="payload">Payload</option>
+                                <option value="memory">Memory</option>
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">JSON path</label>
+                              <input
+                                value={configForm.path ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, path: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="payload.field"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {selectedBlock.type === "logic-if-else" && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">Condition path</label>
+                              <input
+                                value={configForm.conditionPath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, conditionPath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="payload.decision"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">True path</label>
+                              <input
+                                value={configForm.truePath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, truePath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">False path</label>
+                              <input
+                                value={configForm.falsePath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, falsePath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {selectedBlock.type.startsWith("math-") && (
+                          <>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">aPath</label>
+                              <input
+                                value={configForm.aPath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, aPath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                                placeholder="payload.maxApprovedAmount"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-zinc-300">bPath</label>
+                              <input
+                                value={configForm.bPath ?? ""}
+                                onChange={(e) => setConfigForm((f) => ({ ...f, bPath: e.target.value }))}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] outline-none focus:border-[#6758c1] focus:ring-1 focus:ring-[#6758c1]/40"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {configError && (
+                          <div className="text-[11px] text-red-400">{configError}</div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleSaveConfig}
+                          disabled={configSaving}
+                          className="mt-2 w-full rounded border border-[#6758c1] bg-[#6758c1]/10 px-2 py-1 text-[11px] text-[#e0ddff] hover:bg-[#6758c1]/20 disabled:opacity-60"
+                        >
+                          {configSaving ? "Saving…" : "Save config"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
