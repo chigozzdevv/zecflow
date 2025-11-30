@@ -8,6 +8,7 @@ import { ConnectorModel } from '@/features/connectors/connectors.model';
 import { decryptConnectorConfig } from '@/features/connectors/connectors.security';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { createWorkflow, listWorkflows, setWorkflowStatus, deleteWorkflow } from './workflows.service';
+import { logger } from '@/utils/logger';
 
 export const createWorkflowHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   if (!req.user) {
@@ -54,10 +55,12 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
     return;
   }
   const workflow = await setWorkflowStatus(req.params.workflowId, 'published', user.organization.toString());
+  logger.info({ workflowId: req.params.workflowId, hasDataset: !!workflow.dataset }, 'Publish: workflow status set');
 
   let integrationSnippet: string | undefined;
   if (workflow.dataset) {
     const ds = await DatasetModel.findById(workflow.dataset).lean();
+    logger.info({ datasetId: workflow.dataset, found: !!ds, hasCollectionId: !!(ds && ds.nildbCollectionId) }, 'Publish: dataset lookup');
     if (ds && typeof ds.nildbCollectionId === 'string') {
       const collectionId = ds.nildbCollectionId;
       const schema = (ds.schema ?? {}) as Record<string, any>;
@@ -111,11 +114,9 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
             const triggerConfig = (trigger.config as Record<string, unknown>) ?? {};
             const relativePath = (triggerConfig.relativePath as string) || '/';
             if (baseUrl) {
-              try {
-                inboxUrl = new URL(relativePath || '/', baseUrl).toString();
-              } catch {
-                inboxUrl = baseUrl + relativePath;
-              }
+              const trimmedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+              const trimmedPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+              inboxUrl = trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
             }
           }
         }
@@ -196,9 +197,11 @@ export const publishWorkflowHandler = async (req: AuthenticatedRequest, res: Res
         `  );`,
         `}`,
       ].join('\n');
+      logger.info({ snippetLength: integrationSnippet?.length }, 'Publish: integration snippet generated');
     }
   }
 
+  logger.info({ hasSnippet: !!integrationSnippet }, 'Publish: responding');
   res.json({ workflow, integrationSnippet });
 };
 

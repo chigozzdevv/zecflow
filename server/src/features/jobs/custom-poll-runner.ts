@@ -145,7 +145,11 @@ const pollCustomHttpTriggers = async (): Promise<void> => {
     const recordPath = triggerConfig.recordsPath as string | undefined;
     const params = triggerConfig.queryParams as Record<string, string> | undefined;
     const body = triggerConfig.body as Record<string, unknown> | undefined;
-    const url = new URL(relativePath || '/', baseUrl).toString();
+    
+    let url: string;
+    const trimmedBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+    const trimmedPath = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+    url = trimmedPath ? `${trimmedBase}/${trimmedPath}` : trimmedBase;
 
     const recordIdPath = triggerConfig.recordIdPath as string | undefined;
     const watchFields = triggerConfig.watchFields as string[] | undefined;
