@@ -1,13 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { request } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { useEffect } from "react";
 import { useNillionUser } from "@/context/nillion-user-context";
 
 type LoanSubmissionResponse = {
   stateKey: string;
   status: string;
+  runId?: string;
+  workflowId?: string;
+};
+
+type RunStatusResponse = {
+  runId: string;
+  status: "pending" | "running" | "succeeded" | "failed";
+  completedNodeIds: string[];
+  outputs: Record<string, unknown>;
 };
 
 type MedicalDecision = {
@@ -19,7 +27,7 @@ type MedicalDecision = {
 };
 
 export function DemoPage() {
-  const { client: nillionClient, did, connect, initializing } = useNillionUser();
+  const { client: nillionClient, did, connect, initializing, setDelegationToken } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
     fullName: "",
     income: "",
@@ -31,6 +39,10 @@ export function DemoPage() {
   const [loanResult, setLoanResult] = useState<LoanSubmissionResponse | null>(null);
   const [loanError, setLoanError] = useState<string | null>(null);
   const [loanLoading, setLoanLoading] = useState(false);
+  const [loanRunId, setLoanRunId] = useState<string | null>(null);
+  const [loanCompletedNodeIds, setLoanCompletedNodeIds] = useState<string[]>([]);
+  const [loanRunStatus, setLoanRunStatus] = useState<string | null>(null);
+  const loanPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const [medicalForm, setMedicalForm] = useState({
     symptoms: "",
@@ -55,16 +67,22 @@ export function DemoPage() {
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
   const [builderDid, setBuilderDid] = useState<string | null>(null);
 
+  const fetchLoanWorkflow = async () => {
+    try {
+      const loan = await request<LoanWorkflowResponse>("/demo/loan-workflow");
+      setLoanNodes(loan.nodes ?? []);
+      setLoanCollectionId(loan.collectionId ?? null);
+      setBuilderDid(loan.builderDid ?? null);
+      return loan.builderDid ?? null;
+    } catch {
+      setLoanNodes([]);
+      return null;
+    }
+  };
+
   useEffect(() => {
     (async () => {
-      try {
-        const loan = await request<LoanWorkflowResponse>("/demo/loan-workflow");
-        setLoanNodes(loan.nodes ?? []);
-        setLoanCollectionId(loan.collectionId ?? null);
-        setBuilderDid(loan.builderDid ?? null);
-      } catch {
-        setLoanNodes([]);
-      }
+      await fetchLoanWorkflow();
       try {
         const med = await request<{ nodes: DemoWorkflowNode[] }>("/demo/medical-workflow");
         setMedicalNodes(med.nodes ?? []);
@@ -74,10 +92,44 @@ export function DemoPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!loanRunId) return;
+
+    const pollStatus = async () => {
+      try {
+        const res = await request<RunStatusResponse>(`/demo/run-status/${loanRunId}`);
+        setLoanCompletedNodeIds(res.completedNodeIds);
+        setLoanRunStatus(res.status);
+
+        if (res.status === "succeeded" || res.status === "failed") {
+          if (loanPollingRef.current) {
+            clearInterval(loanPollingRef.current);
+            loanPollingRef.current = null;
+          }
+        }
+      } catch {
+        // ignore polling errors
+      }
+    };
+
+    pollStatus();
+    loanPollingRef.current = setInterval(pollStatus, 1500);
+
+    return () => {
+      if (loanPollingRef.current) {
+        clearInterval(loanPollingRef.current);
+        loanPollingRef.current = null;
+      }
+    };
+  }, [loanRunId]);
+
   const handleLoanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoanError(null);
     setLoanResult(null);
+    setLoanRunId(null);
+    setLoanCompletedNodeIds([]);
+    setLoanRunStatus(null);
 
     if (!nillionClient || !did) {
       setLoanError("Connect your wallet to Nillion first.");
@@ -89,9 +141,14 @@ export function DemoPage() {
       return;
     }
 
-    if (!builderDid) {
-      setLoanError("Builder DID not available. Cannot grant server access to your data.");
-      return;
+    let currentBuilderDid = builderDid;
+    if (!currentBuilderDid) {
+      currentBuilderDid = await fetchLoanWorkflow();
+      if (!currentBuilderDid) {
+        setLoanError("Builder DID not available. Server may be initializing - please try again in a moment.");
+        setLoanLoading(false);
+        return;
+      }
     }
 
     setLoanLoading(true);
@@ -101,10 +158,22 @@ export function DemoPage() {
     const requestedAmount = Number(loanForm.requestedAmount);
     if (!loanForm.fullName || Number.isNaN(income) || Number.isNaN(existingDebt) || Number.isNaN(age) || Number.isNaN(requestedAmount)) {
       setLoanError("Please fill all fields with valid values.");
+      setLoanLoading(false);
       return;
     }
     try {
-      const createResponse = await nillionClient.createData({
+      const delegationRes = await request<{ token: string }>("/demo/delegation", {
+        method: "POST",
+        body: JSON.stringify({ userDid: did, collectionId: loanCollectionId }),
+      });
+
+      if (!delegationRes.token) {
+        throw new Error("Failed to get delegation token from server");
+      }
+
+      const delegatedClient = await setDelegationToken(delegationRes.token);
+
+      const createResponse = await delegatedClient.createData({
         owner: did,
         collection: loanCollectionId,
         data: [
@@ -118,7 +187,7 @@ export function DemoPage() {
           },
         ],
         acl: {
-          grantee: builderDid,
+          grantee: currentBuilderDid,
           read: true,
           write: false,
           execute: true,
@@ -140,6 +209,9 @@ export function DemoPage() {
       });
 
       setLoanResult({ ...res, stateKey });
+      if (res.runId) {
+        setLoanRunId(res.runId);
+      }
     } catch (err: any) {
       setLoanError(err instanceof Error ? err.message : "Demo failed");
     } finally {
@@ -174,7 +246,6 @@ export function DemoPage() {
     }
   };
 
-  const loanActiveStep = loanLoading ? 1 : loanResult || loanError ? loanNodes.length : 0;
   const medicalActiveStep = medicalLoading ? 1 : medicalResult || medicalError ? medicalNodes.length : 0;
 
   return (
@@ -258,7 +329,15 @@ export function DemoPage() {
           {loanError && <p className="text-sm text-red-400 mt-3">{loanError}</p>}
           {loanResult && (
             <div className="mt-4 text-sm text-zinc-300 space-y-1">
-              <div>Status: <span className="font-semibold text-white">{loanResult.status}</span></div>
+              <div>
+                Status:{" "}
+                <span className={`font-semibold ${loanRunStatus === "succeeded" ? "text-emerald-400" : loanRunStatus === "failed" ? "text-red-400" : "text-white"}`}>
+                  {loanRunStatus || loanResult.status}
+                </span>
+              </div>
+              {loanRunId && (
+                <div className="text-xs text-zinc-500 break-all">Run ID: {loanRunId}</div>
+              )}
               <div className="text-xs text-zinc-500 break-all">State key (NilDB ref): {loanResult.stateKey}</div>
             </div>
           )}
@@ -273,22 +352,22 @@ export function DemoPage() {
               {loanNodes.length === 0 && (
                 <p className="text-zinc-500 text-[11px]">No workflow graph found for demo loan workflow.</p>
               )}
-              {loanNodes.map((node, idx) => {
-                const step = idx + 1;
-                const active = step <= loanActiveStep;
+              {loanNodes.map((node) => {
+                const isCompleted = loanCompletedNodeIds.includes(node.id);
+                const isRunning = loanLoading || (loanRunStatus === "running" || loanRunStatus === "pending");
                 const label = node.alias || node.blockId || node.type;
                 return (
                   <div
                     key={node.id}
                     className={`flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                      active
+                      isCompleted
                         ? "border-[#6758c1] bg-[#6758c1]/10 shadow-[0_0_20px_rgba(103,88,193,0.4)]"
                         : "border-zinc-800 bg-zinc-950"
                     }`}
                   >
                     <div
                       className={`h-2 w-2 rounded-full ${
-                        active ? "bg-[#6758c1]" : "bg-zinc-700"
+                        isCompleted ? "bg-[#6758c1]" : isRunning ? "bg-zinc-500 animate-pulse" : "bg-zinc-700"
                       }`}
                     />
                     <span className="text-zinc-200 truncate" title={label}>{label}</span>

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { HttpStatus } from '@/utils/http-status';
 import { createRun } from '@/features/runs/runs.service';
 import { WorkflowModel } from '@/features/workflows/workflows.model';
+import { RunModel } from '@/features/runs/runs.model';
 import { DemoSubmissionModel } from './demo.model';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { DatasetModel } from '@/features/datasets/datasets.model';
@@ -19,11 +20,25 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    await DemoSubmissionModel.create({ stateKey });
+    const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+    if (!workflow) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
+      return;
+    }
+
+    const run = await createRun({
+      workflowId: (workflow as any)._id.toString(),
+      payload: {
+        source: 'demo-loan-app',
+        stateKey,
+      },
+    });
 
     res.status(HttpStatus.OK).json({
       stateKey,
-      status: 'submitted',
+      status: 'running',
+      runId: run.id,
+      workflowId: (workflow as any)._id.toString(),
     });
   } catch (err) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan evaluation failed' });
@@ -31,14 +46,8 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
 };
 
 export const demoLoanInboxHandler = async (req: Request, res: Response): Promise<void> => {
-  const demoLoanWorkflowId = process.env.DEMO_LOAN_WORKFLOW_ID;
-  if (!demoLoanWorkflowId) {
-    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'DEMO_LOAN_WORKFLOW_ID is not configured' });
-    return;
-  }
-
-  const workflow = await WorkflowModel.findById(demoLoanWorkflowId);
-  if (!workflow || workflow.status !== 'published') {
+  const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+  if (!workflow) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
     return;
   }
@@ -62,7 +71,7 @@ export const demoLoanInboxHandler = async (req: Request, res: Response): Promise
   const runs = await Promise.all(
     items.map((item) =>
       createRun({
-        workflowId: workflow.id,
+        workflowId: (workflow as any)._id.toString(),
         payload: {
           source: 'demo-loan-app',
           stateKey: item.stateKey,
@@ -137,14 +146,8 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
 };
 
 export const demoLoanWorkflowHandler = async (_req: Request, res: Response): Promise<void> => {
-  const demoLoanWorkflowId = process.env.DEMO_LOAN_WORKFLOW_ID;
-  if (!demoLoanWorkflowId) {
-    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'DEMO_LOAN_WORKFLOW_ID is not configured' });
-    return;
-  }
-
-  const workflow = await WorkflowModel.findById(demoLoanWorkflowId).lean();
-  if (!workflow || workflow.status !== 'published') {
+  const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+  if (!workflow) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
     return;
   }
@@ -191,4 +194,61 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
   }));
 
   res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
+};
+
+export const demoDelegationHandler = async (req: Request, res: Response): Promise<void> => {
+  const { userDid, collectionId } = req.body ?? {};
+
+  if (!userDid || typeof userDid !== 'string') {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'userDid is required' });
+    return;
+  }
+
+  if (!collectionId || typeof collectionId !== 'string') {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'collectionId is required' });
+    return;
+  }
+
+  try {
+    const token = await nildbService.generateDelegationToken(userDid, collectionId);
+    if (!token) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate delegation token' });
+      return;
+    }
+
+    res.json({ token });
+  } catch (err) {
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate delegation token' });
+  }
+};
+
+export const demoRunStatusHandler = async (req: Request, res: Response): Promise<void> => {
+  const { runId } = req.params;
+  if (!runId) {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'runId is required' });
+    return;
+  }
+
+  try {
+    const run = await RunModel.findById(runId).lean();
+    if (!run) {
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Run not found' });
+      return;
+    }
+
+    const result = (run.result ?? {}) as Record<string, unknown>;
+    const steps = Array.isArray((result as any).steps) ? ((result as any).steps as unknown[]) : [];
+    const completedNodeIds = steps
+      .filter((s: any) => s && s.nodeId)
+      .map((s: any) => s.nodeId as string);
+
+    res.json({
+      runId: (run as any)._id.toString(),
+      status: run.status,
+      completedNodeIds,
+      outputs: (result as any).outputs ?? {},
+    });
+  } catch (err) {
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to fetch run status' });
+  }
 };

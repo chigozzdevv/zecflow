@@ -20,6 +20,17 @@ class NilDBService {
     }
   }
 
+  async generateDelegationToken(userDid: string, collectionId: string): Promise<string | null> {
+    try {
+      const builder = await this.getBuilder();
+      const token = await builder.generateUserDelegation(userDid, [collectionId]);
+      return token;
+    } catch (error) {
+      logger.error({ err: error, userDid, collectionId }, 'Failed to generate delegation token');
+      return null;
+    }
+  }
+
   private async getBuilder(): Promise<any> {
     if (this.builderPromise) return this.builderPromise;
 

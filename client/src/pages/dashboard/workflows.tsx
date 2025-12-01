@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Database, Network, Plus, Trash2, Workflow as WorkflowIcon, Zap } from "lucide-react";
+import { CodeSnippetModal } from "@/components/ui/code-snippet-modal";
+import { Code, Database, Network, Plus, Trash2, Workflow as WorkflowIcon, Zap } from "lucide-react";
 import { authorizedRequest, ApiError } from "@/lib/api-client";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 type WorkflowStatus = "draft" | "published" | "paused";
 
@@ -51,6 +52,8 @@ type PublishWorkflowResponse = {
 
 export function DashboardWorkflowsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const snippetFromNav = (location.state as { integrationSnippet?: string } | null)?.integrationSnippet ?? null;
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [triggers, setTriggers] = useState<TriggerItem[]>([]);
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
@@ -64,7 +67,8 @@ export function DashboardWorkflowsPage() {
   const [creating, setCreating] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [integrationSnippet, setIntegrationSnippet] = useState<string | null>(null);
+  const [snippetLoadingId, setSnippetLoadingId] = useState<string | null>(null);
+  const [integrationSnippet, setIntegrationSnippet] = useState<string | null>(snippetFromNav);
 
   useEffect(() => {
     let cancelled = false;
@@ -211,6 +215,23 @@ export function DashboardWorkflowsPage() {
     }
   }
 
+  async function handleViewSnippet(id: string) {
+    try {
+      setSnippetLoadingId(id);
+      setError(null);
+      const res = await authorizedRequest<{ integrationSnippet: string }>(`/workflows/${id}/snippet`);
+      setIntegrationSnippet(res.integrationSnippet);
+    } catch (err) {
+      if (err instanceof ApiError && err.message) {
+        setError(err.message);
+      } else {
+        setError("Failed to load integration snippet.");
+      }
+    } finally {
+      setSnippetLoadingId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-white/10 bg-zinc-900/80 p-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -302,21 +323,12 @@ export function DashboardWorkflowsPage() {
       )}
 
       {integrationSnippet && (
-        <div className="rounded-3xl border border-white/10 bg-zinc-900/80 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-medium text-zinc-300">Integration snippet</p>
-            <button
-              type="button"
-              onClick={() => setIntegrationSnippet(null)}
-              className="text-[11px] text-zinc-400 hover:text-zinc-200"
-            >
-              Hide
-            </button>
-          </div>
-          <pre className="text-[11px] whitespace-pre overflow-x-auto bg-black/40 rounded-lg p-3 border border-zinc-800">
-            <code>{integrationSnippet}</code>
-          </pre>
-        </div>
+        <CodeSnippetModal
+          code={integrationSnippet}
+          language="tsx"
+          title="Integration Snippet"
+          onClose={() => setIntegrationSnippet(null)}
+        />
       )}
 
       {error && (
@@ -403,6 +415,15 @@ export function DashboardWorkflowsPage() {
                           >
                             Edit
                           </Button>
+                          <button
+                            type="button"
+                            onClick={() => handleViewSnippet(workflow._id)}
+                            disabled={snippetLoadingId === workflow._id}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 transition-colors disabled:opacity-50"
+                            title="View integration code"
+                          >
+                            <Code className="h-4 w-4" />
+                          </button>
                           {workflow.status !== "published" && (
                             <Button
                               type="button"

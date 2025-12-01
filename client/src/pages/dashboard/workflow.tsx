@@ -429,7 +429,7 @@ export function DashboardWorkflowPage() {
       );
       const updated = res.workflow;
       setWorkflows((prev) => prev.map((w) => (w._id === updated._id ? updated : w)));
-      navigate("/dashboard/workflows");
+      navigate("/dashboard/workflows", { state: { integrationSnippet: res.integrationSnippet } });
     } catch (err) {
       if (err instanceof ApiError && err.message) {
         setPublishError(err.message);
