@@ -3,6 +3,8 @@ import { request } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useNillionUser } from "@/context/nillion-user-context";
+// @ts-ignore - importing from module without types for now
+import { encrypt, SecretKey } from "@nillion/blindfold";
 
 type LoanSubmissionResponse = {
   stateKey: string;
@@ -65,18 +67,14 @@ export function DemoPage() {
   const [loanNodes, setLoanNodes] = useState<DemoWorkflowNode[]>([]);
   const [medicalNodes, setMedicalNodes] = useState<DemoWorkflowNode[]>([]);
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
-  const [builderDid, setBuilderDid] = useState<string | null>(null);
 
   const fetchLoanWorkflow = async () => {
     try {
       const loan = await request<LoanWorkflowResponse>("/demo/loan-workflow");
       setLoanNodes(loan.nodes ?? []);
       setLoanCollectionId(loan.collectionId ?? null);
-      setBuilderDid(loan.builderDid ?? null);
-      return loan.builderDid ?? null;
     } catch {
       setLoanNodes([]);
-      return null;
     }
   };
 
@@ -131,24 +129,9 @@ export function DemoPage() {
     setLoanCompletedNodeIds([]);
     setLoanRunStatus(null);
 
-    if (!nillionClient || !did) {
-      setLoanError("Connect your wallet to Nillion first.");
-      return;
-    }
-
     if (!loanCollectionId) {
       setLoanError("Loan collection is not configured. Contact the app operator.");
       return;
-    }
-
-    let currentBuilderDid = builderDid;
-    if (!currentBuilderDid) {
-      currentBuilderDid = await fetchLoanWorkflow();
-      if (!currentBuilderDid) {
-        setLoanError("Builder DID not available. Server may be initializing - please try again in a moment.");
-        setLoanLoading(false);
-        return;
-      }
     }
 
     setLoanLoading(true);
@@ -161,71 +144,55 @@ export function DemoPage() {
       setLoanLoading(false);
       return;
     }
+
     try {
-      const delegationRes = await request<{ token: string }>("/demo/delegation", {
-        method: "POST",
-        body: JSON.stringify({ userDid: did, collectionId: loanCollectionId }),
-      });
+      let payload: Record<string, unknown> = {
+        fullName: loanForm.fullName,
+        income,
+        existingDebt,
+        age,
+        country: loanForm.country,
+        requestedAmount,
+      };
 
-      if (!delegationRes.token) {
-        throw new Error("Failed to get delegation token from server");
+      if (nillionClient) {
+        try {
+          const clusterNodes = (nillionClient as any).nodes;
+          const nodeCount = clusterNodes.length;
+          const clusterConfig = { nodes: clusterNodes.map(() => ({})) };
+          
+          const key = await SecretKey.generate(clusterConfig, { store: true });
+          
+          const encryptedFields: Record<string, string[]> = {};
+          for (const [k, v] of Object.entries(payload)) {
+            const encrypted = await encrypt(key, String(v));
+            encryptedFields[k] = encrypted as string[];
+          }
+          
+          const shares: Record<string, unknown>[] = [];
+          for (let i = 0; i < nodeCount; i++) {
+            const nodeShare: Record<string, unknown> = {};
+            for (const [k, shareArr] of Object.entries(encryptedFields)) {
+              nodeShare[k] = shareArr[i];
+            }
+            shares.push(nodeShare);
+          }
+          
+          payload = { shares };
+        } catch (encErr) {
+          console.error("[Client] Encryption failed:", encErr);
+          throw new Error("Client-side encryption failed");
+        }
+      } else {
+        throw new Error("Nillion wallet must be connected for zero-knowledge submission");
       }
-
-      console.log("Creating data with:", {
-        owner: did,
-        collection: loanCollectionId,
-        grantee: currentBuilderDid,
-        delegationToken: delegationRes.token,
-      });
-
-      const createResponse = await nillionClient.createData(
-        {
-          owner: currentBuilderDid,
-          collection: loanCollectionId,
-          data: [
-            {
-              fullName: { "%allot": loanForm.fullName },
-              income: { "%allot": income },
-              existingDebt: { "%allot": existingDebt },
-              age: { "%allot": age },
-              country: { "%allot": loanForm.country },
-              requestedAmount: { "%allot": requestedAmount },
-            },
-          ],
-          acl: {
-            grantee: currentBuilderDid,
-            read: true,
-            write: false,
-            execute: true,
-          },
-        },
-        { auth: { delegation: delegationRes.token } },
-      );
-      
-      console.log("Create response:", JSON.stringify(createResponse, null, 2));
-
-      const successResponses = Object.values(createResponse).filter((res: any) => res && res.data && res.data.created && res.data.created.length > 0);
-      
-      if (successResponses.length === 0) {
-        console.error("No successful responses from nodes:", createResponse);
-        throw new Error("NilDB did not return any created document ids from any node");
-      }
-
-      const firstNode = successResponses[0];
-      const createdIds = firstNode.data.created;
-      const documentId = createdIds[0];
-      if (!documentId) {
-        throw new Error("NilDB did not return a created document id");
-      }
-
-      const stateKey = `${loanCollectionId}:${documentId}`;
 
       const res = await request<LoanSubmissionResponse>("/demo/loan-app", {
         method: "POST",
-        body: JSON.stringify({ stateKey }),
+        body: JSON.stringify(payload),
       });
 
-      setLoanResult({ ...res, stateKey });
+      setLoanResult(res);
       if (res.runId) {
         setLoanRunId(res.runId);
       }

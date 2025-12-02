@@ -7,6 +7,8 @@ import { DemoSubmissionModel } from './demo.model';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { DatasetModel } from '@/features/datasets/datasets.model';
 
+import { logger } from '@/utils/logger';
+
 export const demoLoanResultHandler = async (req: Request, res: Response): Promise<void> => {
   const body = req.body ?? {};
   res.status(HttpStatus.OK).json({ received: true, body });
@@ -14,15 +16,46 @@ export const demoLoanResultHandler = async (req: Request, res: Response): Promis
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { stateKey } = req.body ?? {};
-    if (typeof stateKey !== 'string' || !stateKey.includes(':')) {
-      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey is required and must be "collection:document"' });
-      return;
-    }
-
+    let { stateKey, shares } = req.body ?? {};
+    
     const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
     if (!workflow) {
       res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
+      return;
+    }
+
+    // Resolve collection ID for both shares and plaintext fallback
+    let collectionId: string | null = null;
+    if (workflow.dataset) {
+      const ds = await DatasetModel.findById(workflow.dataset).lean();
+      if (ds && typeof ds.nildbCollectionId === 'string') {
+        collectionId = ds.nildbCollectionId;
+      }
+    }
+
+    if (!collectionId) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Loan collection not configured in workflow dataset' });
+      return;
+    }
+
+    if (!Array.isArray(shares) || shares.length === 0) {
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'Client-encrypted shares required' });
+      return;
+    }
+
+    try {
+      const { v4: uuidv4 } = await import('uuid');
+      const docKey = uuidv4();
+      
+      stateKey = await nildbService.storeEncryptedShares(collectionId, docKey, shares);
+    } catch (err) {
+      logger.error({ err }, 'Failed to store client-encrypted shares');
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to store encrypted shares' });
+      return;
+    }
+
+    if (typeof stateKey !== 'string' || !stateKey.includes(':')) {
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey or valid shares/form data required' });
       return;
     }
 

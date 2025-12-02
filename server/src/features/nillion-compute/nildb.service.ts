@@ -3,6 +3,7 @@ import { logger } from '@/utils/logger';
 
 class NilDBService {
   private builderPromise?: Promise<any>;
+  private plaintextBuilderPromise?: Promise<any>;
   private registeredCollections = new Set<string>();
   private cachedBuilderDid?: string;
 
@@ -69,8 +70,19 @@ class NilDBService {
     this.builderPromise = (async () => {
       const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
       const { NilauthClient, PayerBuilder, Signer } = await import('@nillion/nuc');
+      const dns = await import('dns');
 
       const dbs = dbNodeList.split(',').map((s) => s.trim()).filter(Boolean);
+
+      await Promise.all(
+        dbs.map((url) => {
+          const hostname = new URL(url).hostname;
+          return new Promise<void>((resolve) => {
+            dns.resolve4(hostname, () => resolve());
+          });
+        })
+      );
+      logger.info('DNS pre-warmed for NilDB nodes');
 
       const payer = await PayerBuilder.fromPrivateKey(apiKey).chainUrl(chainUrl).build();
       const nilauthClient = await NilauthClient.create({ baseUrl: authUrl, payer });
@@ -107,9 +119,44 @@ class NilDBService {
 
       logger.info('NilDB SecretVaults builder initialized');
       return builder;
-    })();
+    })().catch((err) => {
+      this.builderPromise = undefined;
+      throw err;
+    });
 
     return this.builderPromise;
+  }
+
+  private async getRawBuilder(): Promise<any> {
+    if (this.plaintextBuilderPromise) return this.plaintextBuilderPromise;
+
+    const { NILLION_API_KEY, NILCHAIN_URL, NILAUTH_URL, NILDB_NODES } = envConfig;
+    if (!NILLION_API_KEY) throw new Error('NILLION_API_KEY not configured');
+
+    this.plaintextBuilderPromise = (async () => {
+      const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
+      const { NilauthClient, PayerBuilder, Signer } = await import('@nillion/nuc');
+
+      const dbs = NILDB_NODES.split(',').map((s) => s.trim()).filter(Boolean);
+      const payer = await PayerBuilder.fromPrivateKey(NILLION_API_KEY).chainUrl(NILCHAIN_URL).build();
+      const nilauthClient = await NilauthClient.create({ baseUrl: NILAUTH_URL, payer });
+      const signer = await Signer.fromPrivateKey(NILLION_API_KEY, 'nil');
+
+      const builder = await SecretVaultBuilderClient.from({
+        signer,
+        nilauthClient,
+        dbs,
+      });
+
+      await builder.refreshRootToken();
+      logger.info('NilDB raw builder initialized');
+      return builder;
+    })().catch((err) => {
+      this.plaintextBuilderPromise = undefined;
+      throw err;
+    });
+
+    return this.plaintextBuilderPromise;
   }
 
   async ensureCollection(collectionId: string, schema: Record<string, unknown>): Promise<void> {
@@ -256,6 +303,74 @@ class NilDBService {
     const compositeKey = `${collectionId}:${key}`;
 
     await this.putDocument(collectionId, compositeKey, data, undefined, options);
+    return compositeKey;
+  }
+
+  async storeEncryptedShares(
+    collectionId: string,
+    key: string,
+    shares: unknown[],
+    retries = 3,
+  ): Promise<string> {
+    const compositeKey = `${collectionId}:${key}`;
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await this._storeEncryptedSharesInternal(collectionId, key, shares, compositeKey);
+      } catch (error: any) {
+        const isNetworkError = error.message?.includes('fetch failed') || 
+                               error.message?.includes('timeout') ||
+                               error.message?.includes('ECONNREFUSED');
+        
+        if (isNetworkError && attempt < retries) {
+          logger.warn({ attempt, retries, err: error.message }, 'NilDB network error, retrying...');
+          this.builderPromise = undefined;
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('storeEncryptedShares failed after retries');
+  }
+
+  private async _storeEncryptedSharesInternal(
+    collectionId: string,
+    key: string,
+    shares: unknown[],
+    compositeKey: string,
+  ): Promise<string> {
+    const builder = await this.getRawBuilder();
+    const nodes = builder.nodes as any[];
+    
+    if (shares.length !== nodes.length) {
+      throw new Error(`Share count (${shares.length}) does not match node count (${nodes.length})`);
+    }
+    
+    const firstShare = shares[0] as Record<string, unknown>;
+    logger.info({ collectionId, shareFields: Object.keys(firstShare) }, 'Storing encrypted shares');
+    
+    const results = await Promise.all(
+      nodes.map(async (node, index) => {
+        const share = shares[index] as Record<string, unknown>;
+        const record: Record<string, unknown> = { _id: key, ...share };
+        const payload = { collection: collectionId, data: [record] };
+        
+        const token = await (builder as any).getInvocationFor({
+          audience: node.id,
+          command: '/nil/db/data/create',
+        });
+        
+        try {
+          return await node.createStandardData(token, payload);
+        } catch (err: any) {
+          logger.error({ nodeIndex: index, nodeId: node.id?.didString, cause: err?.cause }, 'Node store failed');
+          throw err;
+        }
+      }),
+    );
+
+    logger.info({ collectionId, key, shareCount: shares.length, results }, 'NilDB encrypted shares stored');
     return compositeKey;
   }
 

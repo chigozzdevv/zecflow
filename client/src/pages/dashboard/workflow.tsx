@@ -61,6 +61,7 @@ type CreateBlockResponse = {
 
 type PublishWorkflowResponse = {
   workflow: WorkflowItem;
+  integrationSnippet?: string;
 };
 
 const BLOCK_CONFIG_TEMPLATES: Record<string, Record<string, unknown>> = {
