@@ -10,10 +10,15 @@ class NilDBService {
     if (this.cachedBuilderDid) return this.cachedBuilderDid;
 
     try {
-      const builder = await this.getBuilder();
-      const did = await builder.getDid();
+      const { Signer } = await import('@nillion/nuc');
+      const apiKey = envConfig.NILLION_API_KEY;
+      if (!apiKey) return null;
+      
+      const signer = await Signer.fromPrivateKey(apiKey, 'nil');
+      const did = await signer.getDid();
       this.cachedBuilderDid = did.didString;
-      return this.cachedBuilderDid ?? null;
+      logger.info({ builderDid: this.cachedBuilderDid }, 'NilDB Builder DID determined');
+      return this.cachedBuilderDid;
     } catch (error) {
       logger.error({ err: error }, 'Failed to get builder DID');
       return null;
@@ -22,9 +27,21 @@ class NilDBService {
 
   async generateDelegationToken(userDid: string, collectionId: string): Promise<string | null> {
     try {
-      const builder = await this.getBuilder();
-      const token = await builder.generateUserDelegation(userDid, [collectionId]);
-      return token;
+      const { Builder, Did, Signer } = await import('@nillion/nuc');
+      const apiKey = envConfig.NILLION_API_KEY;
+      if (!apiKey) return null;
+      
+      const signer = await Signer.fromPrivateKey(apiKey, 'nil');
+      const userDidObj = Did.parse(userDid);
+      const builderDid = await signer.getDid();
+      
+      const delegationToken = await Builder.delegation()
+        .audience(userDidObj)
+        .subject(builderDid)
+        .command('/nil/db')
+        .signAndSerialize(signer);
+      
+      return delegationToken;
     } catch (error) {
       logger.error({ err: error, userDid, collectionId }, 'Failed to generate delegation token');
       return null;
@@ -63,7 +80,7 @@ class NilDBService {
         signer,
         nilauthClient,
         dbs,
-        blindfold: { operation: 'store' },
+        blindfold: { operation: 'store', useClusterKey: true },
       });
 
       await builder.refreshRootToken();

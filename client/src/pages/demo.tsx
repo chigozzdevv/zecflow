@@ -27,7 +27,7 @@ type MedicalDecision = {
 };
 
 export function DemoPage() {
-  const { client: nillionClient, did, connect, initializing, setDelegationToken } = useNillionUser();
+  const { client: nillionClient, did, connect, initializing } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
     fullName: "",
     income: "",
@@ -171,31 +171,48 @@ export function DemoPage() {
         throw new Error("Failed to get delegation token from server");
       }
 
-      const delegatedClient = await setDelegationToken(delegationRes.token);
-
-      const createResponse = await delegatedClient.createData({
+      console.log("Creating data with:", {
         owner: did,
         collection: loanCollectionId,
-        data: [
-          {
-            fullName: loanForm.fullName,
-            income,
-            existingDebt,
-            age,
-            country: loanForm.country,
-            requestedAmount,
-          },
-        ],
-        acl: {
-          grantee: currentBuilderDid,
-          read: true,
-          write: false,
-          execute: true,
-        },
+        grantee: currentBuilderDid,
+        delegationToken: delegationRes.token,
       });
 
-      const firstNode = Object.values(createResponse)[0];
-      const createdIds = firstNode?.data?.created ?? [];
+      const createResponse = await nillionClient.createData(
+        {
+          owner: currentBuilderDid,
+          collection: loanCollectionId,
+          data: [
+            {
+              fullName: { "%allot": loanForm.fullName },
+              income: { "%allot": income },
+              existingDebt: { "%allot": existingDebt },
+              age: { "%allot": age },
+              country: { "%allot": loanForm.country },
+              requestedAmount: { "%allot": requestedAmount },
+            },
+          ],
+          acl: {
+            grantee: currentBuilderDid,
+            read: true,
+            write: false,
+            execute: true,
+          },
+        },
+        { auth: { delegation: delegationRes.token } },
+      );
+      
+      console.log("Create response:", JSON.stringify(createResponse, null, 2));
+
+      const successResponses = Object.values(createResponse).filter((res: any) => res && res.data && res.data.created && res.data.created.length > 0);
+      
+      if (successResponses.length === 0) {
+        console.error("No successful responses from nodes:", createResponse);
+        throw new Error("NilDB did not return any created document ids from any node");
+      }
+
+      const firstNode = successResponses[0];
+      const createdIds = firstNode.data.created;
       const documentId = createdIds[0];
       if (!documentId) {
         throw new Error("NilDB did not return a created document id");

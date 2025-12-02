@@ -11,6 +11,7 @@ import nillionRouter from '@/features/nillion-compute/nillion-compute.route';
 import zcashRouter from '@/features/zcash-execution/zcash-execution.route';
 import billingRouter from '@/features/billing/billing.route';
 import demoRouter from '@/features/demo/demo.route';
+import { demoDelegationHandler } from '@/features/demo/demo.controller';
 
 const router = Router();
 
@@ -26,5 +27,6 @@ router.use('/nillion', nillionRouter);
 router.use('/zcash', zcashRouter);
 router.use('/billing', billingRouter);
 router.use('/demo', demoRouter);
+router.post('/delegation', demoDelegationHandler);
 
 export default router;
