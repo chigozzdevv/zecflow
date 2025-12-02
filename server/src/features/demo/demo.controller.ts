@@ -24,7 +24,6 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Resolve collection ID for both shares and plaintext fallback
     let collectionId: string | null = null;
     if (workflow.dataset) {
       const ds = await DatasetModel.findById(workflow.dataset).lean();
@@ -46,7 +45,6 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
     try {
       const { v4: uuidv4 } = await import('uuid');
       const docKey = uuidv4();
-      
       stateKey = await nildbService.storeEncryptedShares(collectionId, docKey, shares);
     } catch (err) {
       logger.error({ err }, 'Failed to store client-encrypted shares');
@@ -55,7 +53,7 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
     }
 
     if (typeof stateKey !== 'string' || !stateKey.includes(':')) {
-      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey or valid shares/form data required' });
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey generation failed' });
       return;
     }
 

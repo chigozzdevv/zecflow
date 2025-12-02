@@ -7,6 +7,36 @@ import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { TriggerModel } from '@/features/triggers/triggers.model';
 import { Types } from 'mongoose';
 
+type DependencyInput =
+  | string
+  | {
+      source: string;
+      targetHandle?: string;
+      sourceHandle?: string;
+    };
+
+type NormalizedDependency = {
+  source: string;
+  targetHandle?: string;
+  sourceHandle?: string;
+};
+
+const normalizeDependencyInput = (deps?: DependencyInput[]): NormalizedDependency[] => {
+  if (!deps || !Array.isArray(deps)) return [];
+  return deps
+    .map((dep) => {
+      if (!dep) return null;
+      if (typeof dep === 'string') {
+        return { source: dep };
+      }
+      if (typeof dep === 'object' && typeof dep.source === 'string' && dep.source.length) {
+        return { source: dep.source, targetHandle: dep.targetHandle, sourceHandle: dep.sourceHandle };
+      }
+      return null;
+    })
+    .filter((dep): dep is NormalizedDependency => dep !== null);
+};
+
 interface CreateBlockInput {
   workflowId: string;
   type: string;
@@ -15,7 +45,7 @@ interface CreateBlockInput {
   position?: { x: number; y: number };
   order: number;
   alias?: string;
-  dependencies?: string[];
+  dependencies?: DependencyInput[];
   connectorId?: string;
 }
 
@@ -23,7 +53,7 @@ interface UpdateBlockInput {
   blockId: string;
   organizationId: string;
   position?: { x: number; y: number };
-  dependencies?: string[];
+  dependencies?: DependencyInput[];
   alias?: string;
   config?: Record<string, unknown>;
 }
@@ -46,9 +76,10 @@ export const createBlock = async (input: CreateBlockInput) => {
 
   const parsedConfig = definition.configSchema.parse(input.config);
 
-  let dependencyIds: Types.ObjectId[] = [];
-  if (input.dependencies && input.dependencies.length) {
-    dependencyIds = input.dependencies.map((id) => new Types.ObjectId(id));
+  const normalizedDeps = normalizeDependencyInput(input.dependencies);
+
+  if (normalizedDeps.length) {
+    const dependencyIds = normalizedDeps.map((dep) => new Types.ObjectId(dep.source));
     const dependencyBlocks = await BlockModel.find({ _id: { $in: dependencyIds } });
     if (dependencyBlocks.some((block) => block.workflow.toString() !== input.workflowId)) {
       throw new AppError('Dependencies must belong to same workflow', HttpStatus.BAD_REQUEST);
@@ -79,7 +110,7 @@ export const createBlock = async (input: CreateBlockInput) => {
     throw new AppError('Block requires connector', HttpStatus.BAD_REQUEST);
   }
 
-  return BlockModel.create({
+  const created = await BlockModel.create({
     workflow: input.workflowId,
     type: input.type,
     config: parsedConfig,
@@ -87,15 +118,40 @@ export const createBlock = async (input: CreateBlockInput) => {
     organization: input.organizationId,
     order: input.order,
     alias: input.alias,
-    dependencies: dependencyIds,
+    dependencies: normalizedDeps.map((dep) => ({
+      source: new Types.ObjectId(dep.source),
+      targetHandle: dep.targetHandle,
+      sourceHandle: dep.sourceHandle,
+    })),
     connector: connectorRef,
   });
+  return serializeBlock(created);
 };
 
-export const listBlocksForWorkflow = (workflowId: string) => {
-  return BlockModel.find({ workflow: workflowId }).sort({ order: 1, createdAt: 1 }).lean();
+const serializeDependency = (dep: any) => {
+  if (!dep) return null;
+  if (typeof dep === 'string') return { source: dep };
+  if (dep instanceof Types.ObjectId) return { source: dep.toString() };
+  if (typeof dep === 'object' && dep.source) {
+    const source = dep.source instanceof Types.ObjectId ? dep.source.toString() : String(dep.source);
+    return { source, targetHandle: dep.targetHandle, sourceHandle: dep.sourceHandle };
+  }
+  return null;
 };
 
+const serializeBlock = (block: any) => {
+  if (!block) return block;
+  const plain = block.toObject ? block.toObject() : block;
+  const deps = Array.isArray(plain.dependencies)
+    ? plain.dependencies.map(serializeDependency).filter((dep: any): dep is NormalizedDependency => !!dep)
+    : [];
+  return { ...plain, dependencies: deps };
+};
+
+export const listBlocksForWorkflow = async (workflowId: string) => {
+  const blocks = await BlockModel.find({ workflow: workflowId }).sort({ order: 1, createdAt: 1 }).lean();
+  return blocks.map(serializeBlock);
+};
 export const updateBlock = async (input: UpdateBlockInput) => {
   const block = await BlockModel.findById(input.blockId);
   if (!block || block.organization.toString() !== input.organizationId) {
@@ -130,19 +186,21 @@ export const updateBlock = async (input: UpdateBlockInput) => {
   }
 
   if (input.dependencies) {
-    const newDepIds = input.dependencies.map((id) => new Types.ObjectId(id));
-    const dependencyBlocks = await BlockModel.find({ _id: { $in: newDepIds } });
+    const normalizedDeps = normalizeDependencyInput(input.dependencies);
+    const dependencyIds = normalizedDeps.map((dep) => new Types.ObjectId(dep.source));
+    const dependencyBlocks = await BlockModel.find({ _id: { $in: dependencyIds } });
     if (dependencyBlocks.some((b) => b.workflow.toString() !== block.workflow.toString())) {
       throw new AppError('Dependencies must belong to same workflow', HttpStatus.BAD_REQUEST);
     }
-    // Merge dependencies instead of replacing to handle concurrent connections
-    const existingDepIds = (block.dependencies ?? []).map((d) => d.toString());
-    const mergedDeps = [...new Set([...existingDepIds, ...input.dependencies])];
-    block.dependencies = mergedDeps.map((id) => new Types.ObjectId(id)) as any;
+    block.dependencies = normalizedDeps.map((dep) => ({
+      source: new Types.ObjectId(dep.source),
+      targetHandle: dep.targetHandle,
+      sourceHandle: dep.sourceHandle,
+    })) as any;
   }
 
   await block.save();
-  return block.toObject();
+  return serializeBlock(block);
 };
 
 export const deleteBlock = async (input: DeleteBlockInput): Promise<void> => {

@@ -67,7 +67,7 @@ class NilDBService {
     const authUrl = NILAUTH_URL;
     const dbNodeList = NILDB_NODES;
 
-    this.builderPromise = (async () => {
+    const createBuilder = async () => {
       const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
       const { NilauthClient, PayerBuilder, Signer } = await import('@nillion/nuc');
       const dns = await import('dns');
@@ -119,7 +119,26 @@ class NilDBService {
 
       logger.info('NilDB SecretVaults builder initialized');
       return builder;
-    })().catch((err) => {
+    };
+
+    const withRetry = async () => {
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createBuilder();
+        } catch (err: any) {
+          const isNetworkError = err?.message?.includes('fetch failed') || err?.message?.includes('timeout') || err?.message?.includes('ECONNREFUSED');
+          if (!isNetworkError || attempt === maxAttempts) {
+            throw err;
+          }
+          logger.warn({ attempt, maxAttempts, err: err.message }, 'NilDB builder init failed, retrying...');
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+      }
+      throw new Error('Unable to initialize NilDB builder');
+    };
+
+    this.builderPromise = withRetry().catch((err) => {
       this.builderPromise = undefined;
       throw err;
     });
@@ -133,11 +152,22 @@ class NilDBService {
     const { NILLION_API_KEY, NILCHAIN_URL, NILAUTH_URL, NILDB_NODES } = envConfig;
     if (!NILLION_API_KEY) throw new Error('NILLION_API_KEY not configured');
 
-    this.plaintextBuilderPromise = (async () => {
+    const createRawBuilder = async () => {
       const { SecretVaultBuilderClient } = await import('@nillion/secretvaults');
       const { NilauthClient, PayerBuilder, Signer } = await import('@nillion/nuc');
+      const dns = await import('dns');
 
       const dbs = NILDB_NODES.split(',').map((s) => s.trim()).filter(Boolean);
+
+      await Promise.all(
+        dbs.map((url) => {
+          const hostname = new URL(url).hostname;
+          return new Promise<void>((resolve) => {
+            dns.resolve4(hostname, () => resolve());
+          });
+        })
+      );
+
       const payer = await PayerBuilder.fromPrivateKey(NILLION_API_KEY).chainUrl(NILCHAIN_URL).build();
       const nilauthClient = await NilauthClient.create({ baseUrl: NILAUTH_URL, payer });
       const signer = await Signer.fromPrivateKey(NILLION_API_KEY, 'nil');
@@ -151,7 +181,26 @@ class NilDBService {
       await builder.refreshRootToken();
       logger.info('NilDB raw builder initialized');
       return builder;
-    })().catch((err) => {
+    };
+
+    const withRetry = async () => {
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          return await createRawBuilder();
+        } catch (err: any) {
+          const isNetworkError = err?.message?.includes('fetch failed') || err?.message?.includes('timeout') || err?.message?.includes('ECONNREFUSED');
+          if (!isNetworkError || attempt === maxAttempts) {
+            throw err;
+          }
+          logger.warn({ attempt, maxAttempts, err: err.message }, 'NilDB raw builder init failed, retrying...');
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+      }
+      throw new Error('Unable to initialize NilDB raw builder');
+    };
+
+    this.plaintextBuilderPromise = withRetry().catch((err) => {
       this.plaintextBuilderPromise = undefined;
       throw err;
     });
@@ -353,7 +402,10 @@ class NilDBService {
     const results = await Promise.all(
       nodes.map(async (node, index) => {
         const share = shares[index] as Record<string, unknown>;
-        const record: Record<string, unknown> = { _id: key, ...share };
+        const record: Record<string, unknown> = { _id: key };
+        for (const [field, value] of Object.entries(share)) {
+          record[field] = { '%share': value };
+        }
         const payload = { collection: collectionId, data: [record] };
         
         const token = await (builder as any).getInvocationFor({

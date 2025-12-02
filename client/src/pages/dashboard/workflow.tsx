@@ -21,15 +21,27 @@ type WorkflowItem = {
   createdAt?: string;
 };
 
-type BlockItem = {
+type BlockDependency = {
+  source: string;
+  targetHandle?: string;
+  sourceHandle?: string;
+};
+
+type SerializedDependency = BlockDependency | string;
+
+type RawBlockItem = {
   _id: string;
   type: string;
   config?: Record<string, unknown>;
   order?: number;
   alias?: string;
   connector?: string;
-  dependencies?: string[];
+  dependencies?: SerializedDependency[];
   createdAt?: string;
+};
+
+type BlockItem = Omit<RawBlockItem, "dependencies"> & {
+  dependencies?: BlockDependency[];
 };
 
 type BlockCategory = "input" | "compute" | "action" | "storage" | "transform";
@@ -48,7 +60,7 @@ type ListWorkflowsResponse = {
 };
 
 type ListBlocksResponse = {
-  blocks: BlockItem[];
+  blocks: RawBlockItem[];
 };
 
 type BlockDefinitionsResponse = {
@@ -56,8 +68,27 @@ type BlockDefinitionsResponse = {
 };
 
 type CreateBlockResponse = {
-  block: BlockItem;
+  block: RawBlockItem;
 };
+
+const normalizeDependencies = (deps?: SerializedDependency[]): BlockDependency[] => {
+  if (!deps) return [];
+  return deps
+    .map((dep) => {
+      if (!dep) return null;
+      if (typeof dep === "string") return { source: dep };
+      if (typeof dep.source === "string" && dep.source.length) {
+        return { source: dep.source, targetHandle: dep.targetHandle, sourceHandle: dep.sourceHandle };
+      }
+      return null;
+    })
+    .filter((dep): dep is BlockDependency => dep !== null);
+};
+
+const normalizeBlockItem = (block: RawBlockItem): BlockItem => ({
+  ...block,
+  dependencies: normalizeDependencies(block.dependencies),
+});
 
 type PublishWorkflowResponse = {
   workflow: WorkflowItem;
@@ -349,9 +380,10 @@ export function DashboardWorkflowPage() {
         );
         if (cancelled) return;
         const list = res.blocks ?? [];
-        setBlocks(list);
+        const normalized = list.map(normalizeBlockItem);
+        setBlocks(normalized);
 
-        const newNodes: Node<WorkflowNodeData>[] = list.map((block, index) => {
+        const newNodes: Node<WorkflowNodeData>[] = normalized.map((block, index) => {
           const def = definitions.find((d) => d.id === block.type);
           const label = block.alias || def?.name || block.type;
           const baseX = 120 + (index % 4) * 220;
@@ -370,8 +402,9 @@ export function DashboardWorkflowPage() {
         });
 
         const newEdges: Edge[] = [];
-        for (const block of list) {
-          if (!block.dependencies || !block.dependencies.length) continue;
+        for (const block of normalized) {
+          const deps = normalizeDependencies(block.dependencies);
+          if (!deps.length) continue;
           const cfg = (block.config ?? {}) as Record<string, unknown>;
           const inputSlots = (cfg.__inputSlots ?? {}) as Record<string, { source: string; output?: string }>;
           const sourceToHandle: Record<string, string> = {};
@@ -381,11 +414,11 @@ export function DashboardWorkflowPage() {
             }
           }
           
-          for (const dep of block.dependencies) {
-            const source = String(dep);
+          for (const dep of deps) {
+            const source = dep.source;
             const target = block._id;
-            const targetHandle = sourceToHandle[source] || undefined;
-            const sourceHandle = targetHandle ? inputSlots[targetHandle]?.output : undefined;
+            const targetHandle = dep.targetHandle ?? (sourceToHandle[source] ?? undefined);
+            const sourceHandle = dep.sourceHandle ?? (targetHandle ? inputSlots[targetHandle]?.output : undefined);
             newEdges.push({
               id: `${source}-${target}${targetHandle ? `-${targetHandle}` : ""}`,
               source,
@@ -533,7 +566,7 @@ export function DashboardWorkflowPage() {
         method: "PATCH",
         body: JSON.stringify({ config: nextCfg, alias }),
       });
-      const updated = res.block;
+      const updated = normalizeBlockItem(res.block);
       setBlocks((prev) => prev.map((b) => (b._id === updated._id ? updated : b)));
       setNodes((nds) =>
         nds.map((n) =>
@@ -567,10 +600,7 @@ export function DashboardWorkflowPage() {
       const targetBlock = blocksRef.current.find((b) => b._id === connection.target);
       if (!targetBlock) return;
 
-      const existingDeps = targetBlock.dependencies ?? [];
-      const newDeps = existingDeps.includes(connection.source)
-        ? existingDeps
-        : [...existingDeps, connection.source];
+      const existingDeps = normalizeDependencies(targetBlock.dependencies);
 
       const prevConfig = (targetBlock.config ?? {}) as Record<string, unknown>;
       const prevSlots = (prevConfig.__inputSlots as Record<string, { source: string; output?: string }> | undefined) ?? {};
@@ -585,27 +615,37 @@ export function DashboardWorkflowPage() {
         slotKey = preferred.find((key) => !prevSlots[key]) ?? undefined;
       }
 
+      const nextConfigSlots = { ...prevSlots };
+      if (slotKey) {
+        nextConfigSlots[slotKey] = {
+          source: connection.source,
+          output: connection.sourceHandle || undefined,
+        };
+      }
+
+      const filteredDeps = slotKey
+        ? existingDeps.filter((dep) => dep.targetHandle !== slotKey)
+        : existingDeps.filter((dep) => !(dep.source === connection.source && !dep.targetHandle));
+
+      const dependencyEntry: BlockDependency = {
+        source: connection.source,
+        targetHandle: slotKey,
+        sourceHandle: connection.sourceHandle || undefined,
+      };
+
+      const nextDeps = [...filteredDeps, dependencyEntry];
+
       const nextConfig: Record<string, unknown> = {
         ...prevConfig,
-        __inputSlots: {
-          ...prevSlots,
-          ...(slotKey
-            ? {
-                [slotKey]: {
-                  source: connection.source,
-                  output: connection.sourceHandle || undefined,
-                },
-              }
-            : {}),
-        },
+        __inputSlots: nextConfigSlots,
       };
 
       try {
         const res = await authorizedRequest<CreateBlockResponse>(`/blocks/${connection.target}`, {
           method: "PATCH",
-          body: JSON.stringify({ dependencies: newDeps, config: nextConfig }),
+          body: JSON.stringify({ dependencies: nextDeps, config: nextConfig }),
         });
-        const updatedBlock = res.block;
+        const updatedBlock = normalizeBlockItem(res.block);
         setBlocks((prev) => {
           const updated = prev.map((b) => (b._id === updatedBlock._id ? updatedBlock : b));
           blocksRef.current = updated;
@@ -639,7 +679,7 @@ export function DashboardWorkflowPage() {
 
       const template = BLOCK_CONFIG_TEMPLATES[type] ?? {};
       const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
-      const dependencies = selectedIds.length === 1 ? [selectedIds[0]] : [];
+      const dependencies = selectedIds.length === 1 ? [{ source: selectedIds[0] }] : [];
 
       try {
         const res = await authorizedRequest<CreateBlockResponse>("/blocks", {
@@ -654,7 +694,7 @@ export function DashboardWorkflowPage() {
           }),
         });
 
-        const newBlock = res.block;
+        const newBlock = normalizeBlockItem(res.block);
         setBlocks((prev) => [...prev, newBlock]);
         const def = definitions.find((d) => d.id === newBlock.type);
         const label = newBlock.alias || def?.name || newBlock.type;
@@ -673,7 +713,7 @@ export function DashboardWorkflowPage() {
         );
 
         if (dependencies.length === 1) {
-          const sourceId = dependencies[0];
+          const sourceId = dependencies[0].source;
           setEdges((eds) =>
             addEdge(
               {
@@ -711,7 +751,7 @@ export function DashboardWorkflowPage() {
 
       const template = BLOCK_CONFIG_TEMPLATES[type] ?? {};
       const selectedIds = nodes.filter((n) => n.selected).map((n) => n.id);
-      const dependencies = selectedIds.length === 1 ? [selectedIds[0]] : [];
+      const dependencies = selectedIds.length === 1 ? [{ source: selectedIds[0] }] : [];
 
       try {
         const res = await authorizedRequest<CreateBlockResponse>("/blocks", {
@@ -726,7 +766,7 @@ export function DashboardWorkflowPage() {
           }),
         });
 
-        const newBlock = res.block;
+        const newBlock = normalizeBlockItem(res.block);
         setBlocks((prev) => [...prev, newBlock]);
         const def = definitions.find((d) => d.id === newBlock.type);
         const label = newBlock.alias || def?.name || newBlock.type;
@@ -745,7 +785,7 @@ export function DashboardWorkflowPage() {
         );
 
         if (dependencies.length === 1) {
-          const sourceId = dependencies[0];
+          const sourceId = dependencies[0].source;
           setEdges((eds) =>
             addEdge(
               {

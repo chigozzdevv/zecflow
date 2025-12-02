@@ -414,6 +414,10 @@ export class WorkflowEngine {
     throw new Error(`Unsupported input type for ${label} at node ${nodeId}: ${typeof raw}`);
   }
 
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
   private async executeNillionBatch(
     graph: WorkflowGraph,
     batchNodeIds: string[],
@@ -433,6 +437,18 @@ export class WorkflowEngine {
     const nillionGraphEdges: { id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }[] = [];
 
     const nodeInputsById = new Map<string, Record<string, any>>();
+
+    const contextSnapshot = {
+      payload,
+      memory: Object.fromEntries(context.values),
+    };
+
+    const fallbackViaPath = (value: unknown, path?: string) => {
+      if ((this.isPlainObject(value) || Array.isArray(value)) && path) {
+        return this.getValueFromContext(contextSnapshot, path);
+      }
+      return value;
+    };
 
     for (const nodeId of batchNodeIds) {
       const node = nodeById.get(nodeId);
@@ -476,8 +492,9 @@ export class WorkflowEngine {
         if (!hasInternalA) {
           let aVal = nodeInputs.a;
           const aPath = (node.data as Record<string, any>).aPath as string | undefined;
+          aVal = fallbackViaPath(aVal, aPath);
           if (aVal === undefined && aPath) {
-            aVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, aPath);
+            aVal = this.getValueFromContext(contextSnapshot, aPath);
           }
           staticInputs.a = this.ensureIntegerLiteral(aVal, 'a', nodeId);
         }
@@ -485,8 +502,9 @@ export class WorkflowEngine {
         if (!hasInternalB) {
           let bVal = nodeInputs.b;
           const bPath = (node.data as Record<string, any>).bPath as string | undefined;
+          bVal = fallbackViaPath(bVal, bPath);
           if (bVal === undefined && bPath) {
-            bVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, bPath);
+            bVal = this.getValueFromContext(contextSnapshot, bPath);
           }
           staticInputs.b = this.ensureIntegerLiteral(bVal, 'b', nodeId);
         }
@@ -504,8 +522,9 @@ export class WorkflowEngine {
         if (!hasInternalCondition) {
           let condVal = nodeInputs.condition;
           const conditionPath = (node.data as Record<string, any>).conditionPath as string | undefined;
+          condVal = fallbackViaPath(condVal, conditionPath);
           if (condVal === undefined && conditionPath) {
-            condVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, conditionPath);
+            condVal = this.getValueFromContext(contextSnapshot, conditionPath);
           }
           staticInputs.condition = this.ensureIntegerLiteral(condVal, 'condition', nodeId);
         }
@@ -513,8 +532,9 @@ export class WorkflowEngine {
         if (!hasInternalTrue) {
           let trueVal = nodeInputs.true;
           const truePath = (node.data as Record<string, any>).truePath as string | undefined;
+          trueVal = fallbackViaPath(trueVal, truePath);
           if (trueVal === undefined && truePath) {
-            trueVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, truePath);
+            trueVal = this.getValueFromContext(contextSnapshot, truePath);
           }
           staticInputs.true_value = this.ensureIntegerLiteral(trueVal, 'true_value', nodeId);
         }
@@ -522,8 +542,9 @@ export class WorkflowEngine {
         if (!hasInternalFalse) {
           let falseVal = nodeInputs.false;
           const falsePath = (node.data as Record<string, any>).falsePath as string | undefined;
+          falseVal = fallbackViaPath(falseVal, falsePath);
           if (falseVal === undefined && falsePath) {
-            falseVal = this.getValueFromContext({ payload, memory: Object.fromEntries(context.values) }, falsePath);
+            falseVal = this.getValueFromContext(contextSnapshot, falsePath);
           }
           staticInputs.false_value = this.ensureIntegerLiteral(falseVal, 'false_value', nodeId);
         }
@@ -739,6 +760,23 @@ export class WorkflowEngine {
         bVal = edgeInputs.b;
       }
 
+      if ((this.isPlainObject(aVal) || Array.isArray(aVal)) && typeof data.aPath === 'string' && data.aPath.length) {
+        aVal = this.getValueFromContext(context, data.aPath as string);
+      }
+      if ((this.isPlainObject(bVal) || Array.isArray(bVal)) && typeof data.bPath === 'string' && data.bPath.length) {
+        bVal = this.getValueFromContext(context, data.bPath as string);
+      }
+
+      const fallbackNumeric = (value: unknown, path?: string) => {
+        if ((this.isPlainObject(value) || Array.isArray(value)) && path) {
+          return this.getValueFromContext(context, path);
+        }
+        return value;
+      };
+
+      aVal = fallbackNumeric(aVal, data.aPath as string | undefined);
+      bVal = fallbackNumeric(bVal, data.bPath as string | undefined);
+
       if (aVal === undefined || bVal === undefined) {
         const aPath = data.aPath as string | undefined;
         const bPath = data.bPath as string | undefined;
@@ -812,6 +850,17 @@ export class WorkflowEngine {
       if (falseVal === undefined && 'false' in edgeInputs) {
         falseVal = edgeInputs.false;
       }
+
+      const fallbackValue = (value: unknown, path?: string) => {
+        if ((this.isPlainObject(value) || Array.isArray(value)) && path) {
+          return this.getValueFromContext(context, path);
+        }
+        return value;
+      };
+
+      condVal = fallbackValue(condVal, data.conditionPath as string | undefined);
+      trueVal = fallbackValue(trueVal, data.truePath as string | undefined);
+      falseVal = fallbackValue(falseVal, data.falsePath as string | undefined);
 
       if (condVal === undefined || trueVal === undefined || falseVal === undefined) {
         const conditionPath = data.conditionPath as string | undefined;

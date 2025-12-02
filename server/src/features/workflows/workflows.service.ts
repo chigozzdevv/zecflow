@@ -7,6 +7,9 @@ import { TriggerModel } from '@/features/triggers/triggers.model';
 import { BlockModel } from '@/features/blocks/blocks.model';
 import { RunModel } from '@/features/runs/runs.model';
 import { getBlockDefinition } from '@/features/blocks/blocks.registry';
+import { Types } from 'mongoose';
+
+type ResolvedDependency = { source: string; targetHandle?: string; sourceHandle?: string };
 
 interface CreateWorkflowInput {
   name: string;
@@ -31,6 +34,22 @@ const mapCategoryToNodeType = (category: string): WorkflowNode['type'] => {
     default:
       return 'compute';
   }
+};
+
+const normalizeDependency = (dep: unknown): ResolvedDependency | null => {
+  if (!dep) return null;
+  if (typeof dep === 'string') return { source: dep };
+  if (dep instanceof Types.ObjectId) return { source: dep.toString() };
+  if (typeof dep === 'object' && dep !== null && 'source' in dep) {
+    const record = dep as { source: unknown; targetHandle?: unknown; sourceHandle?: unknown };
+    const source = record.source instanceof Types.ObjectId ? record.source.toString() : String(record.source);
+    return {
+      source,
+      targetHandle: typeof record.targetHandle === 'string' ? record.targetHandle : undefined,
+      sourceHandle: typeof record.sourceHandle === 'string' ? record.sourceHandle : undefined,
+    };
+  }
+  return null;
 };
 
 const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> => {
@@ -65,7 +84,7 @@ const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> 
 
   for (const block of blocks as any[]) {
     if (!block.dependencies || !Array.isArray(block.dependencies)) continue;
-    
+
     const config = (block.config ?? {}) as Record<string, any>;
     const inputSlots = (config.__inputSlots ?? {}) as Record<string, { source: string; output?: string }>;
     const sourceToHandle: Record<string, string> = {};
@@ -74,12 +93,16 @@ const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> 
         sourceToHandle[slot.source] = handle;
       }
     }
-    
-    for (const dep of block.dependencies) {
-      const sourceId = String(dep);
+
+    const normalizedDeps = block.dependencies
+      .map(normalizeDependency)
+      .filter((dep: ResolvedDependency | null): dep is ResolvedDependency => dep !== null);
+
+    for (const dep of normalizedDeps) {
+      const sourceId = dep.source;
       const targetId = String(block._id);
-      const targetHandle = sourceToHandle[sourceId];
-      const sourceHandle = targetHandle ? inputSlots[targetHandle]?.output : undefined;
+      const targetHandle = dep.targetHandle ?? sourceToHandle[sourceId];
+      const sourceHandle = dep.sourceHandle ?? (targetHandle ? inputSlots[targetHandle]?.output : undefined);
       
       edges.push({
         id: `${sourceId}->${targetId}${targetHandle ? `-${targetHandle}` : ''}`,
