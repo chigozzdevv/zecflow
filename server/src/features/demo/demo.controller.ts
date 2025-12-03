@@ -16,8 +16,16 @@ export const demoLoanResultHandler = async (req: Request, res: Response): Promis
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
   try {
-    let { stateKey, shares } = req.body ?? {};
-    
+    const {
+      fullName,
+      income,
+      existingDebt,
+      age,
+      country,
+      requestedAmount,
+      userDid,
+    } = req.body ?? {};
+
     const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
     if (!workflow) {
       res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
@@ -37,23 +45,49 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    if (!Array.isArray(shares) || shares.length === 0) {
-      res.status(HttpStatus.BAD_REQUEST).json({ message: 'Client-encrypted shares required' });
+    const numericIncome = Number(income);
+    const numericDebt = Number(existingDebt);
+    const numericAge = Number(age);
+    const numericRequested = Number(requestedAmount);
+
+    if (
+      typeof fullName !== 'string' ||
+      typeof country !== 'string' ||
+      !fullName.trim() ||
+      !country.trim() ||
+      Number.isNaN(numericIncome) ||
+      Number.isNaN(numericDebt) ||
+      Number.isNaN(numericAge) ||
+      Number.isNaN(numericRequested)
+    ) {
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'Invalid loan payload' });
       return;
     }
 
+    let stateKey: string;
     try {
       const { v4: uuidv4 } = await import('uuid');
       const docKey = uuidv4();
-      stateKey = await nildbService.storeEncryptedShares(collectionId, docKey, shares);
+      await nildbService.putDocument(
+        collectionId,
+        docKey,
+        {
+          fullName: fullName.trim(),
+          country: country.trim(),
+          income: numericIncome,
+          existingDebt: numericDebt,
+          age: numericAge,
+          requestedAmount: numericRequested,
+          source: 'demo-loan-app',
+          userDid: typeof userDid === 'string' && userDid.length ? userDid : undefined,
+        },
+        undefined,
+        { encryptAll: true },
+      );
+      stateKey = `${collectionId}:${docKey}`;
     } catch (err) {
-      logger.error({ err }, 'Failed to store client-encrypted shares');
-      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to store encrypted shares' });
-      return;
-    }
-
-    if (typeof stateKey !== 'string' || !stateKey.includes(':')) {
-      res.status(HttpStatus.BAD_REQUEST).json({ message: 'stateKey generation failed' });
+      logger.error({ err }, 'Failed to store loan payload');
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to store encrypted loan data' });
       return;
     }
 

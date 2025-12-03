@@ -3,8 +3,6 @@ import { request } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useNillionUser } from "@/context/nillion-user-context";
-// @ts-ignore - importing from module without types for now
-import { encrypt, SecretKey } from "@nillion/blindfold";
 
 type LoanSubmissionResponse = {
   stateKey: string;
@@ -29,7 +27,7 @@ type MedicalDecision = {
 };
 
 export function DemoPage() {
-  const { client: nillionClient, did, connect, initializing } = useNillionUser();
+  const { did, connect, initializing } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
     fullName: "",
     income: "",
@@ -146,46 +144,15 @@ export function DemoPage() {
     }
 
     try {
-      let payload: Record<string, unknown> = {
-        fullName: loanForm.fullName,
+      const payload: Record<string, unknown> = {
+        fullName: loanForm.fullName.trim(),
         income,
         existingDebt,
         age,
-        country: loanForm.country,
+        country: loanForm.country.trim(),
         requestedAmount,
+        userDid: did ?? undefined,
       };
-
-      if (nillionClient) {
-        try {
-          const clusterNodes = (nillionClient as any).nodes;
-          const nodeCount = clusterNodes.length;
-          const clusterConfig = { nodes: clusterNodes.map(() => ({})) };
-          
-          const key = await SecretKey.generate(clusterConfig, { store: true });
-          
-          const encryptedFields: Record<string, string[]> = {};
-          for (const [k, v] of Object.entries(payload)) {
-            const encrypted = await encrypt(key, String(v));
-            encryptedFields[k] = encrypted as string[];
-          }
-          
-          const shares: Record<string, unknown>[] = [];
-          for (let i = 0; i < nodeCount; i++) {
-            const nodeShare: Record<string, unknown> = {};
-            for (const [k, shareArr] of Object.entries(encryptedFields)) {
-              nodeShare[k] = shareArr[i];
-            }
-            shares.push(nodeShare);
-          }
-          
-          payload = { shares };
-        } catch (encErr) {
-          console.error("[Client] Encryption failed:", encErr);
-          throw new Error("Client-side encryption failed");
-        }
-      } else {
-        throw new Error("Nillion wallet must be connected for zero-knowledge submission");
-      }
 
       const res = await request<LoanSubmissionResponse>("/demo/loan-app", {
         method: "POST",

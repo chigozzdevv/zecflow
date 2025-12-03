@@ -19,6 +19,7 @@ type CreateWorkloadInput = {
 
 interface NilCCTier {
   id: string;
+  name?: string;
   cpus: number;
   memory: number;
   disk: number;
@@ -143,7 +144,15 @@ class NilCCService {
 
     try {
       const { data } = await this.client.get('/api/v1/workload-tiers/list');
-      const tiers = (data?.tiers ?? data ?? []) as NilCCTier[];
+      const rawTiers = Array.isArray(data?.tiers) ? data.tiers : Array.isArray(data) ? data : [];
+      const tiers: NilCCTier[] = rawTiers.map((tier: any) => ({
+        id: tier.tierId || tier.id,
+        name: tier.name,
+        cpus: Number(tier.cpus ?? tier.cpu ?? tier.vcpus ?? 0),
+        memory: Number(tier.memory ?? tier.memoryMb ?? tier.ramMb ?? tier.ram ?? 0),
+        disk: Number(tier.disk ?? tier.diskGb ?? tier.storageGb ?? tier.storage ?? 0),
+        gpus: Number(tier.gpus ?? tier.gpu ?? 0),
+      }));
       this.workloadTierCache = {
         tiers,
         expiresAt: Date.now() + this.cacheTtlMs,
