@@ -117,13 +117,43 @@ class NilCCService {
     }
   }
 
-  async getLogs(workloadId: string): Promise<string> {
+  async getLogs(workloadId: string, options?: { tail?: boolean }): Promise<any> {
     try {
-      const { data } = await this.client.post('/api/v1/workloads/logs', { workloadId });
-      return typeof data === 'string' ? data : JSON.stringify(data);
+      const { data } = await this.client.post('/api/v1/workloads/logs', {
+        workloadId,
+        tail: options?.tail ?? false,
+      });
+      if (typeof data === 'string') {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return data;
+        }
+      }
+      return data;
     } catch (error: any) {
       logger.error({ err: error, workloadId }, 'Failed to get nilCC workload logs');
       throw new Error(`NilCC get logs failed: ${error.message}`);
+    }
+  }
+
+  async getContainerLogs(
+    workloadId: string,
+    containerName: string,
+    options?: { tail?: boolean; stream?: 'stdout' | 'stderr'; maxLines?: number },
+  ): Promise<any> {
+    try {
+      const { data } = await this.client.post('/api/v1/workloads/container-logs', {
+        workloadId,
+        container: containerName,
+        tail: options?.tail ?? false,
+        stream: options?.stream ?? 'stdout',
+        maxLines: options?.maxLines ?? 1000,
+      });
+      return data;
+    } catch (error: any) {
+      logger.warn({ err: error, workloadId, containerName }, 'Failed to get nilCC container logs');
+      return null;
     }
   }
 

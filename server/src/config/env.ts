@@ -14,6 +14,8 @@ const envSchema = z.object({
 
   NILCC_API_KEY: z.string().optional(),
   NILCC_BASE_URL: z.string().url().default('https://api.nilcc.nillion.network'),
+  NILCC_POLL_TIMEOUT_MS: z.coerce.number().optional(),
+  NILCC_POLL_INTERVAL_MS: z.coerce.number().optional(),
 
   NILDB_ENABLED: z.coerce.boolean().default(true),
   NILLION_API_KEY: z.string().optional(),
