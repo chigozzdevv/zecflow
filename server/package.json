@@ -5,8 +5,8 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/main.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node -r tsconfig-paths/register dist/main.js",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
+    "start": "node dist/main.js",
     "lint": "echo 'lint step TBD'"
   },
   "keywords": [],
@@ -46,6 +46,7 @@
     "@types/node": "^24.10.1",
     "@types/uuid": "^10.0.0",
     "ts-node-dev": "^2.0.0",
+    "tsc-alias": "^1.8.10",
     "typescript": "^5.9.3"
   }
 }
