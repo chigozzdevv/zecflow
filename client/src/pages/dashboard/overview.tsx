@@ -2,7 +2,7 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Database, Workflow, Zap, Network } from "lucide-react";
-import { authorizedRequest, ApiError } from "@/lib/api-client";
+import { authorizedRequest, ApiError, request } from "@/lib/api-client";
 
 type WorkflowStatus = "draft" | "published" | "paused";
 
@@ -34,13 +34,42 @@ type WorkloadItem = {
 type RunStatus = "pending" | "running" | "succeeded" | "failed";
 
 type RunItem = {
-  _id: string;
+  id: string;
   status: RunStatus;
-  createdAt?: string;
+  createdAt?: string | null;
+  workflowName?: string | null;
 };
 
 type RunsResponse = {
-  runs: RunItem[];
+  runs: Array<{
+    _id?: string;
+    id?: string;
+    status: RunStatus;
+    createdAt?: string | null;
+    workflow?: string;
+    workflowId?: string;
+    workflowName?: string | null;
+  }>;
+};
+
+const normalizeRuns = (items: RunsResponse["runs"], fallbackName: string | null): RunItem[] => {
+  return (items ?? [])
+    .map((run, idx) => {
+      const idRaw = run._id ?? run.id ?? `${idx}`;
+      const id = typeof idRaw === "string" ? idRaw : String(idRaw);
+      return {
+        id,
+        status: (run.status ?? "pending") as RunStatus,
+        createdAt: run.createdAt ?? null,
+        workflowName: run.workflowName ?? fallbackName ?? null,
+      } satisfies RunItem;
+    })
+    .sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return aTime - bTime;
+    })
+    .slice(-20);
 };
 
 type DashboardMetrics = {
@@ -68,9 +97,13 @@ export function DashboardOverviewPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics>(initialMetrics);
   const [primaryWorkflowId, setPrimaryWorkflowId] = useState<string | null>(null);
   const [primaryWorkflowName, setPrimaryWorkflowName] = useState<string | null>(null);
-  const [runs, setRuns] = useState<RunItem[]>([]);
-  const [runsLoading, setRunsLoading] = useState(false);
-  const [runsError, setRunsError] = useState<string | null>(null);
+  const [workflowRuns, setWorkflowRuns] = useState<RunItem[]>([]);
+  const [workflowRunsLoading, setWorkflowRunsLoading] = useState(false);
+  const [workflowRunsError, setWorkflowRunsError] = useState<string | null>(null);
+  const [demoRuns, setDemoRuns] = useState<RunItem[]>([]);
+  const [demoRunsLoading, setDemoRunsLoading] = useState(true);
+  const [demoRunsError, setDemoRunsError] = useState<string | null>(null);
+  const [workflowsResolved, setWorkflowsResolved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +152,7 @@ export function DashboardOverviewPage() {
       } finally {
         if (!cancelled) {
           setLoading(false);
+          setWorkflowsResolved(true);
         }
       }
     }
@@ -129,52 +163,82 @@ export function DashboardOverviewPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!primaryWorkflowId) {
-      setRuns([]);
-      return;
-    }
+useEffect(() => {
+  let cancelled = false;
+  setDemoRunsLoading(true);
+  setDemoRunsError(null);
 
-    let cancelled = false;
+  request<RunsResponse>("/demo/runs?limit=40")
+    .then((res) => {
+      if (!cancelled) {
+        setDemoRuns(normalizeRuns(res.runs ?? [], "Demo workflow"));
+      }
+    })
+    .catch(() => {
+      if (!cancelled) {
+        setDemoRunsError("We couldn't load demo runs.");
+      }
+    })
+    .finally(() => {
+      if (!cancelled) {
+        setDemoRunsLoading(false);
+      }
+    });
 
-    async function loadRuns() {
-      try {
-        setRunsLoading(true);
-        setRunsError(null);
-        const res = await authorizedRequest<RunsResponse>(
-          `/runs?workflowId=${encodeURIComponent(primaryWorkflowId!)}`,
-        );
-        if (cancelled) return;
-        const list = (res.runs ?? []).slice().sort((a, b) => {
-          const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
-          const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
-          return aTime - bTime;
-        });
-        setRuns(list.slice(-20));
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
-          return;
-        }
-        setRunsError("We couldn't load runs for this workflow.");
-      } finally {
-        if (!cancelled) {
-          setRunsLoading(false);
-        }
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
+useEffect(() => {
+  if (!workflowsResolved || !primaryWorkflowId) {
+    setWorkflowRuns([]);
+    return;
+  }
+
+  let cancelled = false;
+
+  async function loadWorkflowRuns() {
+    try {
+      setWorkflowRunsLoading(true);
+      setWorkflowRunsError(null);
+      const res = await authorizedRequest<RunsResponse>(
+        `/runs?workflowId=${encodeURIComponent(primaryWorkflowId!)}`,
+      );
+      if (cancelled) return;
+      setWorkflowRuns(normalizeRuns(res.runs ?? [], primaryWorkflowName));
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        return;
+      }
+      setWorkflowRunsError("We couldn't load runs for this workflow.");
+    } finally {
+      if (!cancelled) {
+        setWorkflowRunsLoading(false);
       }
     }
+  }
 
-    loadRuns();
-    return () => {
-      cancelled = true;
-    };
-  }, [primaryWorkflowId]);
+  loadWorkflowRuns();
+  return () => {
+    cancelled = true;
+  };
+}, [primaryWorkflowId, primaryWorkflowName, workflowsResolved]);
 
-  const succeeded = runs.filter((r) => r.status === "succeeded").length;
-  const failed = runs.filter((r) => r.status === "failed").length;
-  const inProgress = runs.filter(
+const workflowHasSuccess = workflowRuns.some((run) => run.status === "succeeded");
+const shouldPreferWorkflowRuns =
+  workflowRuns.length > 0 && (workflowHasSuccess || demoRuns.length === 0);
+
+const displayedRuns = shouldPreferWorkflowRuns ? workflowRuns : demoRuns;
+const runsLoading = shouldPreferWorkflowRuns ? workflowRunsLoading : demoRunsLoading;
+const runsError = shouldPreferWorkflowRuns ? workflowRunsError : demoRunsError;
+
+  const succeeded = displayedRuns.filter((r) => r.status === "succeeded").length;
+  const failed = displayedRuns.filter((r) => r.status === "failed").length;
+  const inProgress = displayedRuns.filter(
     (r) => r.status === "pending" || r.status === "running",
   ).length;
-  const successRate = runs.length ? Math.round((succeeded / runs.length) * 100) : null;
+  const successRate = displayedRuns.length ? Math.round((succeeded / displayedRuns.length) * 100) : null;
 
   return (
     <div className="space-y-8">
@@ -228,10 +292,12 @@ export function DashboardOverviewPage() {
           />
           <StatCard
             icon={Zap}
-            label="Nillion workloads"
-            value={metrics.workloadsTotal}
+            label="Recent runs"
+            value={displayedRuns.length}
             highlight={
-              metrics.workloadsTotal > 0 ? "Compute ready" : "No workloads registered"
+              displayedRuns.length > 0
+                ? `${succeeded} succeeded · ${failed} failed` + (inProgress > 0 ? ` · ${inProgress} in progress` : "")
+                : "No runs recorded yet"
             }
             iconClassName="text-amber-400"
           />
@@ -250,9 +316,9 @@ export function DashboardOverviewPage() {
             <div>
               <h2 className="text-lg font-semibold">Run success over time</h2>
               <p className="text-xs text-zinc-400 mt-1">
-                {primaryWorkflowName
+                {shouldPreferWorkflowRuns && primaryWorkflowId && primaryWorkflowName
                   ? `Latest runs for "${primaryWorkflowName}"`
-                  : "Publish a workflow to start seeing run history."}
+                  : "Latest runs from demo workflows."}
               </p>
             </div>
             {successRate !== null && (
@@ -262,7 +328,7 @@ export function DashboardOverviewPage() {
                   <span className="text-sm text-zinc-400 ml-1">%</span>
                 </div>
                 <div className="text-[11px] text-zinc-400">
-                  success rate (last {runs.length || 0} runs)
+                  success rate (last {displayedRuns.length || 0} runs)
                 </div>
               </div>
             )}
@@ -271,7 +337,7 @@ export function DashboardOverviewPage() {
             <div className="h-32 flex items-center justify-center">
               <div className="h-6 w-6 rounded-full border-2 border-white/30 border-t-transparent animate-spin" />
             </div>
-          ) : runs.length === 0 ? (
+          ) : displayedRuns.length === 0 ? (
             <div className="h-24 flex items-center justify-center">
               <p className="text-xs text-zinc-500">
                 No runs yet. Publish a workflow and trigger it to see success vs failed runs here.
@@ -287,7 +353,7 @@ export function DashboardOverviewPage() {
               <div className="relative h-24 flex items-center">
                 <div className="absolute left-0 right-0 h-px bg-zinc-700/80" />
                 <div className="relative z-10 flex w-full gap-1">
-                  {runs.map((run, idx) => {
+                  {displayedRuns.map((run, idx) => {
                     const colorClasses =
                       run.status === "succeeded"
                         ? "bg-emerald-400 border-emerald-300"
@@ -295,7 +361,7 @@ export function DashboardOverviewPage() {
                         ? "bg-rose-500 border-rose-400"
                         : "bg-zinc-500 border-zinc-400";
                     return (
-                      <div key={run._id ?? idx} className="flex-1 flex flex-col items-center">
+                      <div key={run.id ?? idx} className="flex-1 flex flex-col items-center">
                         <div className="flex-1 flex items-center justify-center">
                           <div className={`w-2.5 h-2.5 rounded-full border ${colorClasses}`} />
                         </div>

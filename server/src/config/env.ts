@@ -47,6 +47,7 @@ const envSchema = z.object({
   QUEUE_REDIS_URL: z.string().url().optional(),
   PUBLIC_URL: z.string().url(),
   ENCRYPTION_KEY: z.string().min(16),
+  CORS_ORIGINS: z.string().optional(),
 });
 
 export const envConfig = envSchema.parse(process.env);

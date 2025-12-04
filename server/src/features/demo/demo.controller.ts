@@ -575,6 +575,77 @@ export const demoMedicalAttestationHandler = async (_req: Request, res: Response
   }
 };
 
+export const demoRunsHandler = async (req: Request, res: Response): Promise<void> => {
+  const loanWorkflowId = process.env.DEMO_LOAN_WORKFLOW_ID;
+  const medicalWorkflowId = process.env.DEMO_MEDICAL_WORKFLOW_ID;
+  const demoWorkflowIds = [loanWorkflowId, medicalWorkflowId].filter((id): id is string => Boolean(id));
+
+  const requestedWorkflowId = typeof req.query.workflowId === 'string' ? req.query.workflowId : null;
+  const limitParam = typeof req.query.limit === 'string' ? Number(req.query.limit) : NaN;
+  const limit = Number.isFinite(limitParam) && limitParam > 0 && limitParam <= 200 ? Math.floor(limitParam) : 40;
+
+  if (!demoWorkflowIds.length) {
+    res.json({ runs: [] });
+    return;
+  }
+
+  let targetWorkflowIds: string[] = demoWorkflowIds;
+  if (requestedWorkflowId) {
+    if (!demoWorkflowIds.includes(requestedWorkflowId)) {
+      res.status(HttpStatus.FORBIDDEN).json({ message: 'Workflow not available for demo runs' });
+      return;
+    }
+    targetWorkflowIds = [requestedWorkflowId];
+  }
+
+  try {
+    const runs = await RunModel.find({ workflow: { $in: targetWorkflowIds } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    if (!runs.length) {
+      res.json({ runs: [] });
+      return;
+    }
+
+    const workflowDocs = await WorkflowModel.find({ _id: { $in: targetWorkflowIds } })
+      .select('_id name')
+      .lean();
+    const workflowNames = new Map(workflowDocs.map((w) => [w._id.toString(), w.name]));
+
+    const payloadRuns = runs.map((run) => {
+      const payload = (run.payload ?? {}) as Record<string, unknown>;
+      const outputs = (run.result as Record<string, unknown> | undefined)?.outputs as Record<string, unknown> | undefined;
+      const workflowId = run.workflow?.toString?.() ?? '';
+      const createdAt = (run as { createdAt?: Date }).createdAt;
+
+      const resultKey =
+        typeof outputs?.resultKey === 'string'
+          ? (outputs.resultKey as string)
+          : typeof payload.resultKey === 'string'
+            ? (payload.resultKey as string)
+            : null;
+
+      return {
+        id: run._id?.toString?.() ?? '',
+        workflowId,
+        workflowName: workflowNames.get(workflowId) ?? 'Demo workflow',
+        status: run.status,
+        createdAt: createdAt?.toISOString() ?? null,
+        stateKey: typeof payload.stateKey === 'string' ? (payload.stateKey as string) : null,
+        resultKey,
+        shielded: Boolean(payload.shieldResult ?? outputs?.resultShielded),
+      };
+    });
+
+    res.json({ runs: payloadRuns });
+  } catch (err) {
+    logger.error({ err }, 'Failed to load demo runs');
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to load demo runs' });
+  }
+};
+
 export const demoRunStatusHandler = async (req: Request, res: Response): Promise<void> => {
   const { runId } = req.params;
   if (!runId) {

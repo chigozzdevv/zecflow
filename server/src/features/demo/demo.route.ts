@@ -10,6 +10,7 @@ import {
   demoRunStatusHandler,
   demoMedicalResultFetchHandler,
   demoMedicalAttestationHandler,
+  demoRunsHandler,
 } from './demo.controller';
 
 const router = Router();
@@ -24,5 +25,6 @@ router.post('/delegation', demoDelegationHandler);
 router.get('/run-status/:runId', demoRunStatusHandler);
 router.get('/medical-result', demoMedicalResultFetchHandler);
 router.get('/medical-attestation', demoMedicalAttestationHandler);
+router.get('/runs', demoRunsHandler);
 
 export default router;
