@@ -77,44 +77,66 @@ class NilCCService {
   }
 
   async createWorkload(input: CreateWorkloadInput): Promise<{ id: string; publicUrl?: string }> {
-    try {
-      const payload = {
-        name: input.name,
-        dockerCompose: input.dockerCompose,
-        publicContainerName: input.publicContainerName,
-        publicContainerPort: input.publicContainerPort,
-        cpus: input.cpus,
-        memory: input.memory,
-        disk: input.disk,
-        gpus: input.gpus ?? 0,
-        artifactsVersion: input.artifactsVersion,
-        envVars: input.envVars,
-        files: this.prepareFiles(input.files),
-        dockerCredentials: input.dockerCredentials,
-      };
+    const startTime = Date.now();
+    const maxRetries = 3;
 
-      await this.ensureTierMatch({
-        cpus: payload.cpus,
-        memory: payload.memory,
-        disk: payload.disk,
-        gpus: payload.gpus,
-      });
+    const payload = {
+      name: input.name,
+      dockerCompose: input.dockerCompose,
+      publicContainerName: input.publicContainerName,
+      publicContainerPort: input.publicContainerPort,
+      cpus: input.cpus,
+      memory: input.memory,
+      disk: input.disk,
+      gpus: input.gpus ?? 0,
+      artifactsVersion: input.artifactsVersion,
+      envVars: input.envVars,
+      files: this.prepareFiles(input.files),
+      dockerCredentials: input.dockerCredentials,
+    };
 
-      const { data } = await this.client.post('/api/v1/workloads/create', payload);
-      const id = data?.id || data?.workloadId || data?.workload?.id;
-      const publicUrl = this.extractPublicUrl(data?.workload) || this.extractPublicUrl(data);
+    await this.ensureTierMatch({
+      cpus: payload.cpus,
+      memory: payload.memory,
+      disk: payload.disk,
+      gpus: payload.gpus,
+    });
 
-      if (!id) {
-        logger.warn({ data }, 'NilCC createWorkload: unexpected response shape');
-        throw new Error('Failed to extract workload ID from response');
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info({ name: input.name, attempt }, '[NilCC API] Creating workload');
+        const { data } = await this.client.post('/api/v1/workloads/create', payload);
+        const id = data?.id || data?.workloadId || data?.workload?.id;
+        const publicUrl = this.extractPublicUrl(data?.workload) || this.extractPublicUrl(data);
+
+        if (!id) {
+          logger.warn({ data }, '[NilCC API] Unexpected response shape');
+          throw new Error('Failed to extract workload ID from response');
+        }
+
+        const duration = Date.now() - startTime;
+        logger.info({ workloadId: id, publicUrl, durationMs: duration }, '[NilCC API] Workload created');
+        return { id, publicUrl };
+      } catch (error: any) {
+        const responseData = error.response?.data;
+        const apiError = responseData?.error || responseData?.message || responseData?.kind;
+        const isRetryable = error.response?.status === 503 || error.response?.status === 502 || error.code === 'ECONNRESET';
+        const isLastAttempt = attempt === maxRetries;
+
+        if (isRetryable && !isLastAttempt) {
+          logger.warn({ name: input.name, attempt, status: error.response?.status, apiError }, '[NilCC API] Retryable error, waiting before retry');
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+          continue;
+        }
+
+        const duration = Date.now() - startTime;
+        const errorMessage = apiError || error.message;
+        logger.error({ name: input.name, durationMs: duration, apiError, status: error.response?.status }, '[NilCC API] Failed to create workload');
+        throw new Error(`NilCC create workload failed: ${errorMessage}`);
       }
-
-      logger.info({ workloadId: id, publicUrl }, 'NilCC workload created');
-      return { id, publicUrl };
-    } catch (error: any) {
-      logger.error({ err: error, input: input.name }, 'Failed to create nilCC workload');
-      throw new Error(`NilCC create workload failed: ${error.message}`);
     }
+
+    throw new Error('NilCC create workload failed: max retries exceeded');
   }
 
   async getLogs(workloadId: string, options?: { tail?: boolean }): Promise<any> {
@@ -269,19 +291,24 @@ class NilCCService {
     const normalized = publicUrl.endsWith('/') ? publicUrl.slice(0, -1) : publicUrl;
     const attestationUrl = `${normalized}/nilcc/api/v2/report`;
 
+    logger.debug({ attestationUrl }, '[NilCC API] Fetching attestation report');
+
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
         const { data } = await axios.get(attestationUrl, { timeout: 10000 });
+        logger.debug({ attempt }, '[NilCC API] Attestation report received');
         return data;
       } catch (error) {
         const isLastAttempt = attempt === retries - 1;
         if (isLastAttempt) {
           if (required) {
+            logger.error({ err: error, attestationUrl }, '[NilCC API] Attestation required but failed');
             throw new Error(`Failed to retrieve nilCC attestation: ${(error as Error).message}`);
           }
-          logger.warn({ err: error, attestationUrl }, 'Unable to retrieve nilCC attestation report');
+          logger.warn({ err: error, attestationUrl }, '[NilCC API] Attestation unavailable');
           return undefined;
         }
+        logger.debug({ attempt, retries }, '[NilCC API] Attestation fetch retry');
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
     }
@@ -294,10 +321,11 @@ class NilCCService {
       return;
     }
     try {
+      logger.debug({ workloadId }, '[NilCC API] Deleting workload');
       await this.client.post('/api/v1/workloads/delete', { workloadId });
-      logger.info({ workloadId }, 'NilCC workload deleted');
+      logger.info({ workloadId }, '[NilCC API] Workload deleted');
     } catch (error: any) {
-      logger.warn({ err: error, workloadId }, 'Failed to delete nilCC workload');
+      logger.warn({ err: error, workloadId }, '[NilCC API] Failed to delete workload');
     }
   }
 }

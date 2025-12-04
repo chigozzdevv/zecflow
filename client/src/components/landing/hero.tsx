@@ -29,13 +29,19 @@ export function Hero() {
 
           <p className="text-lg text-zinc-400 mb-10 max-w-2xl mx-auto leading-relaxed">
             Build, deploy, and manage decentralized automation workflows.
-            Leverage Zcash for private transfers and Nillion NilCC blocks for secure computation.
+            Leverage Zcash for private transfers and Nillion blind compute (NilDB + NilAI + NilCC) blocks for secure computation.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="lg" className="w-full sm:w-auto bg-[#6758c1] hover:bg-[#5344ad] text-white h-12 px-8 text-base">
-              Start Building
-              <ArrowRight className="ml-2 h-4 w-4" />
+            <Button
+              asChild
+              size="lg"
+              className="w-full sm:w-auto bg-[#6758c1] hover:bg-[#5344ad] text-white h-12 px-8 text-base"
+            >
+              <Link to="/auth">
+                Start Building
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
             </Button>
             <Button
               asChild

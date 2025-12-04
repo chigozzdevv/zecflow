@@ -3,27 +3,27 @@ import { CheckCircle2, FileCheck, Shield, ShieldCheck } from "lucide-react";
 
 const points = [
   {
-    title: "Shielded value flows",
+    title: "Shielded Zcash payouts",
     description:
-      "Use Zcash shielded addresses so workflow funding, payouts, and internal transfers are not publicly linkable.",
+      "`zcash-send` uses shielded addresses so funding, payouts, and internal transfers remain unlinkable on-chain.",
     icon: ShieldCheck,
   },
   {
-    title: "Minimized data surface",
+    title: "Encrypted NilDB state",
     description:
-      "Keep sensitive inputs encrypted in Nillion and avoid copying raw user data across services.",
+      "`state-store` and `state-read` keep income, KYC, and risk data encrypted inside NilDB collections with delegation tokens.",
     icon: Shield,
   },
   {
-    title: "Policy-aware execution",
+    title: "Policy-aware NilCC graphs",
     description:
-      "Enforce limits, approvals, and audit flags inside the workflow graph instead of in ad-hoc scripts.",
+      "`logic-if-else`, `math-*`, and `nillion-compute` blocks enforce limits, approvals, and AML checks directly in the workflow.",
     icon: FileCheck,
   },
   {
-    title: "Operational transparency",
+    title: "Auditable run history",
     description:
-      "Track who triggered what, when, and with which parameters for later review.",
+      "Every execution is persisted as a run record (RunModel) so teams can review triggers, inputs, and outputs later.",
     icon: CheckCircle2,
   },
 ];
@@ -45,8 +45,8 @@ export function Compliance() {
             Designed for sensitive automation flows
           </p>
           <p className="mt-4 text-lg leading-8 text-zinc-400">
-            Run private value flows and user data locked down while still letting agents and services coordinate
-            complex tasks.
+            Combine shielded Zcash transfers, encrypted NilDB state, and NilCC policy blocks while retaining run-level
+            observability for reviewers and regulators.
           </p>
         </div>
 

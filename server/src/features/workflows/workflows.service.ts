@@ -52,7 +52,7 @@ const normalizeDependency = (dep: unknown): ResolvedDependency | null => {
   return null;
 };
 
-const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> => {
+export const buildGraphFromBlocks = async (workflowId: string): Promise<WorkflowGraph> => {
   const blocks = await BlockModel.find({ workflow: workflowId }).sort({ order: 1, createdAt: 1 }).lean();
 
   if (!blocks.length) {

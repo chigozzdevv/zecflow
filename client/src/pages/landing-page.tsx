@@ -7,6 +7,7 @@ import { Compliance } from "@/components/landing/compliance";
 import { FAQ } from "@/components/landing/faq";
 import { WhyZecFlow } from "@/components/landing/why-zecflow";
 import { VideoDemo } from "@/components/landing/video-demo";
+import { ComputeStack } from "@/components/landing/compute-stack";
 
 export function LandingPage() {
   return (
@@ -15,6 +16,7 @@ export function LandingPage() {
       <main>
         <Hero />
         <VideoDemo />
+        <ComputeStack />
         <WhyZecFlow />
         <HowItWorks />
         <Blocks />

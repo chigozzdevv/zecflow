@@ -6,12 +6,99 @@ import { RunModel } from '@/features/runs/runs.model';
 import { DemoSubmissionModel } from './demo.model';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { DatasetModel } from '@/features/datasets/datasets.model';
+import { buildGraphFromBlocks } from '@/features/workflows/workflows.service';
+import type { WorkflowGraph } from '@/features/workflows/workflows.types';
 
 import { logger } from '@/utils/logger';
 
 export const demoLoanResultHandler = async (req: Request, res: Response): Promise<void> => {
   const body = req.body ?? {};
   res.status(HttpStatus.OK).json({ received: true, body });
+};
+
+const getDemoLoanWorkflow = async () => {
+  const demoLoanWorkflowId = process.env.DEMO_LOAN_WORKFLOW_ID;
+  if (demoLoanWorkflowId) {
+    const workflow = await WorkflowModel.findById(demoLoanWorkflowId).lean();
+    if (workflow && workflow.status === 'published') {
+      return workflow;
+    }
+  }
+  return WorkflowModel.findOne({ status: 'published' }).lean();
+};
+
+const ensureWorkflowGraph = async (workflow: any): Promise<WorkflowGraph | null> => {
+  if (workflow?.graph && Array.isArray(workflow.graph.nodes) && workflow.graph.nodes.length > 0) {
+    return workflow.graph as WorkflowGraph;
+  }
+
+  if (!workflow?._id) {
+    return null;
+  }
+
+  try {
+    const builtGraph = await buildGraphFromBlocks(workflow._id.toString());
+    return {
+      ...builtGraph,
+      metadata:
+        (workflow.graph as WorkflowGraph | undefined)?.metadata ?? {
+          name: workflow.name,
+          description: workflow.description,
+        },
+    } satisfies WorkflowGraph;
+  } catch (err) {
+    logger.warn({ err, workflowId: workflow._id?.toString?.() }, 'Failed to rebuild workflow graph for demo response');
+    return null;
+  }
+};
+
+const GRID_COLUMNS = 4;
+const GRID_X_START = 120;
+const GRID_Y_START = 80;
+const GRID_X_STEP = 220;
+const GRID_Y_STEP = 140;
+
+const computeGridPosition = (index: number) => ({
+  x: GRID_X_START + (index % GRID_COLUMNS) * GRID_X_STEP,
+  y: GRID_Y_START + Math.floor(index / GRID_COLUMNS) * GRID_Y_STEP,
+});
+
+const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | null => {
+  if (!graph || !Array.isArray(graph.nodes) || !graph.nodes.length) {
+    return graph;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let needsFallback = false;
+
+  for (const node of graph.nodes) {
+    const pos = node.position;
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+      needsFallback = true;
+      break;
+    }
+    minX = Math.min(minX, pos.x);
+    maxX = Math.max(maxX, pos.x);
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y);
+  }
+
+  const spreadX = maxX - minX;
+  const spreadY = maxY - minY;
+  if (!needsFallback && (spreadX >= 10 || spreadY >= 10)) {
+    return graph;
+  }
+
+  const adjustedNodes = graph.nodes.map((node, idx) => ({
+    ...node,
+    position: computeGridPosition(idx),
+  }));
+
+  logger.debug({ workflowId: graph.metadata?.name }, 'Applied fallback workflow graph layout');
+  return { ...graph, nodes: adjustedNodes };
 };
 
 export const demoLoanHandler = async (req: Request, res: Response): Promise<void> => {
@@ -26,7 +113,7 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
       userDid,
     } = req.body ?? {};
 
-    const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+    const workflow = await getDemoLoanWorkflow();
     if (!workflow) {
       res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
       return;
@@ -111,7 +198,7 @@ export const demoLoanHandler = async (req: Request, res: Response): Promise<void
 };
 
 export const demoLoanInboxHandler = async (req: Request, res: Response): Promise<void> => {
-  const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+  const workflow = await getDemoLoanWorkflow();
   if (!workflow) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
     return;
@@ -189,7 +276,7 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    await createRun({
+    const run = await createRun({
       workflowId: workflow.id,
       payload: {
         source: 'demo-medical',
@@ -200,28 +287,43 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
     });
 
     if (shieldResult) {
-      res.status(HttpStatus.OK).json({ status: 'completed', resultShielded: true, resultKey: stateKey });
+      res.status(HttpStatus.OK).json({
+        status: 'running',
+        resultShielded: true,
+        resultKey: stateKey,
+        runId: run.id,
+        workflowId: workflow.id,
+      });
       return;
     }
 
-    res.status(HttpStatus.OK).json({ status: 'completed', resultShielded: false, diagnosis, stateKey });
+    res.status(HttpStatus.OK).json({
+      status: 'running',
+      resultShielded: false,
+      diagnosis,
+      stateKey,
+      runId: run.id,
+      workflowId: workflow.id,
+    });
   } catch (err) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo medical evaluation failed' });
   }
 };
 
 export const demoLoanWorkflowHandler = async (_req: Request, res: Response): Promise<void> => {
-  const workflow = await WorkflowModel.findOne({ status: 'published' }).lean();
+  const workflow = await getDemoLoanWorkflow();
   if (!workflow) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo loan workflow not found or not published' });
     return;
   }
 
-  const nodes = (workflow.graph?.nodes ?? []).map((n) => ({
+  const graph = normalizeGraphPositions(await ensureWorkflowGraph(workflow));
+  const nodes = (graph?.nodes ?? []).map((n) => ({
     id: n.id,
     alias: n.alias,
     blockId: n.blockId,
     type: n.type,
+    position: n.position,
   }));
   let collectionId: string | null = null;
   let datasetId: string | null = null;
@@ -235,7 +337,7 @@ export const demoLoanWorkflowHandler = async (_req: Request, res: Response): Pro
 
   const builderDid = await nildbService.getBuilderDid();
 
-  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, collectionId, datasetId, builderDid });
+  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, graph, collectionId, datasetId, builderDid });
 };
 
 export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): Promise<void> => {
@@ -251,14 +353,16 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
     return;
   }
 
-  const nodes = (workflow.graph?.nodes ?? []).map((n) => ({
+  const graph = normalizeGraphPositions(await ensureWorkflowGraph(workflow));
+  const nodes = (graph?.nodes ?? []).map((n) => ({
     id: n.id,
     alias: n.alias,
     blockId: n.blockId,
     type: n.type,
+    position: n.position,
   }));
 
-  res.json({ id: workflow._id.toString(), name: workflow.name, nodes });
+  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, graph });
 };
 
 export const demoDelegationHandler = async (req: Request, res: Response): Promise<void> => {

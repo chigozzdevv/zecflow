@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { GitBranch, Layers, Lock, Network, Wallet, Zap } from "lucide-react";
+import { Brain, Database, GitBranch, Lock, Wallet, Zap } from "lucide-react";
 
 const blocks = [
   {
@@ -19,7 +19,7 @@ const blocks = [
   {
     id: "conditional-logic",
     name: "Conditional logic",
-    description: "Branch on balances, prices, or external signals.",
+    description: "Branch on balances, approvals, or compute outputs.",
     icon: GitBranch,
     color: "#f97316",
   },
@@ -31,18 +31,18 @@ const blocks = [
     color: "#22d3ee",
   },
   {
-    id: "cross-chain",
-    name: "Cross-chain hooks",
-    description: "Listen to other chains and react on Zcash.",
-    icon: Network,
+    id: "nildb-state",
+    name: "NilDB state",
+    description: "Encrypt with `state-store` and pull back via `state-read` using state keys.",
+    icon: Database,
     color: "#a855f7",
   },
   {
-    id: "bundled-actions",
-    name: "Bundled actions",
-    description: "Group reads, computes, and transfers as one.",
-    icon: Layers,
-    color: "#ec4899",
+    id: "nilai-reasoning",
+    name: "NilAI reasoning",
+    description: "Generate blind explanations with the `nilai-llm` block.",
+    icon: Brain,
+    color: "#facc15",
   },
 ];
 

@@ -24,14 +24,21 @@ class NilCCExecutionService {
     payload: Record<string, unknown>,
     relativePath: string = '/',
   ): Promise<NilCCInvocationResult> {
+    logger.debug({ workloadId, relativePath }, '[NilCC] Executing workload');
+
     const rec = await NillionWorkloadModel.findOne({ workloadId }).lean();
     if (!rec || !rec.publicUrl) {
+      logger.error({ workloadId }, '[NilCC] Workload not found or missing publicUrl');
       throw new Error(`NilCC workload ${workloadId} not found or missing publicUrl`);
     }
 
     const attestation = await nilccService.getAttestationReport(rec.publicUrl, { required: true });
     const url = new URL(relativePath || '/', rec.publicUrl).toString();
+
+    logger.debug({ workloadId, url }, '[NilCC] Sending request to workload');
     const { data } = await axios.post(url, payload, { timeout: 30000 });
+
+    logger.info({ workloadId }, '[NilCC] Workload execution completed');
     return {
       response: data,
       attestation,
@@ -46,26 +53,40 @@ class NilCCExecutionService {
   ): Promise<NilCCBlockGraphResult> {
     let createdWorkloadId: string | null = null;
     let createdWorkloadUrl: string | undefined;
+    const startTime = Date.now();
     try {
-      logger.info({ workflowRunId, nodeCount: graph.nodes.length }, 'Executing nillion block graph');
+      logger.info({ workflowRunId, nodeCount: graph.nodes.length, inputKeys: Object.keys(inputs) }, '[NilCC] Starting block graph execution');
 
+      logger.debug({ workflowRunId }, '[NilCC] Generating Node.js code from block graph');
       const nodeJsCode = nillionCodeGeneratorService.generateNodeJsCode(graph, inputs);
-      const inputJson = JSON.stringify(inputs);
-      const composeYaml = this.generateComputeServiceCompose(nodeJsCode, inputJson);
-      const artifactsVersion = await nilccService.getLatestArtifactsVersion();
+      logger.debug({ workflowRunId, codeLength: nodeJsCode.length }, '[NilCC] Code generation complete');
 
-      logger.info({ workflowRunId, composeYaml }, 'Generated docker-compose for NilCC');
+      const inputJson = JSON.stringify(inputs);
+      const composeYaml = this.generateComputeServiceCompose();
+
+      logger.debug({ workflowRunId }, '[NilCC] Fetching latest artifacts version');
+      const artifactsVersion = await nilccService.getLatestArtifactsVersion();
+      logger.debug({ workflowRunId, artifactsVersion }, '[NilCC] Artifacts version retrieved');
+
+      logger.debug({ workflowRunId }, '[NilCC] Docker-compose generated');
 
       const workloadName = `workflow-${workflowRunId}-${Date.now()}`;
 
-      const files = {};
+      const files = {
+        'workflow.js': nodeJsCode,
+        'input.json': inputJson,
+      };
 
+      logger.debug({ workflowRunId }, '[NilCC] Fetching workload tiers');
       const tiers = await nilccService.listWorkloadTiers();
       const tier = tiers[0];
       if (!tier) {
+        logger.error({ workflowRunId }, '[NilCC] No workload tiers available');
         throw new Error('No available nilCC workload tiers');
       }
+      logger.debug({ workflowRunId, tier: tier.id, cpus: tier.cpus, memory: tier.memory }, '[NilCC] Selected workload tier');
 
+      logger.info({ workflowRunId, workloadName }, '[NilCC] Creating workload');
       const workloadResult = await nilccService.createWorkload({
         name: workloadName,
         dockerCompose: composeYaml,
@@ -82,62 +103,58 @@ class NilCCExecutionService {
       createdWorkloadId = workloadResult.id;
       createdWorkloadUrl = workloadResult.publicUrl;
 
-      logger.info({ workloadId: workloadResult.id, publicUrl: workloadResult.publicUrl }, 'Nillion compute workload created');
+      logger.info({ workflowRunId, workloadId: workloadResult.id, publicUrl: workloadResult.publicUrl }, '[NilCC] Workload created successfully');
 
+      logger.info({ workflowRunId, workloadId: workloadResult.id }, '[NilCC] Waiting for container to become ready');
       await this.waitForContainerReady(workloadResult.id, workloadResult.publicUrl);
-      
+
+      logger.info({ workflowRunId, workloadId: workloadResult.id }, '[NilCC] Polling for execution output');
       const output = await this.pollForOutput(workloadResult.id, workloadResult.publicUrl, workflowRunId);
+
+      logger.info({ workflowRunId, workloadId: workloadResult.id }, '[NilCC] Fetching attestation report');
       const attestation = await nilccService.getAttestationReport(workloadResult.publicUrl);
 
-      logger.info({ workloadId: workloadResult.id }, 'Nillion block graph execution completed');
+      const duration = Date.now() - startTime;
+      logger.info({ workflowRunId, workloadId: workloadResult.id, durationMs: duration }, '[NilCC] Block graph execution completed successfully');
       return {
         output,
         attestation,
         result: output,
       };
     } catch (error: any) {
-      logger.error({ err: error, workflowRunId }, 'Failed to execute nillion block graph');
+      const duration = Date.now() - startTime;
+      logger.error({ err: error, workflowRunId, durationMs: duration }, '[NilCC] Block graph execution failed');
       throw new Error(`Nillion block graph execution failed: ${error.message}`);
     } finally {
       if (createdWorkloadId) {
+        logger.debug({ workflowRunId, workloadId: createdWorkloadId }, '[NilCC] Cleaning up workload');
         await nilccService.deleteWorkload(createdWorkloadId);
-        if (createdWorkloadUrl) {
-          logger.info({ workloadId: createdWorkloadId, publicUrl: createdWorkloadUrl }, 'Nillion compute workload torn down');
-        }
+        logger.info({ workloadId: createdWorkloadId }, '[NilCC] Workload deleted');
       }
     }
   }
 
-  private generateComputeServiceCompose(workflowCode: string, inputJson: string): string {
-    const escapedCode = Buffer.from(workflowCode).toString('base64');
-    const escapedInput = Buffer.from(inputJson).toString('base64');
-    
+  private generateComputeServiceCompose(): string {
     return `services:
   compute:
-    image: node:18-alpine
-    command:
-      - sh
-      - -c
-      - |
-        echo "Starting container..."
-        mkdir -p /app
-        echo "${escapedCode}" | base64 -d > /app/workflow.js
-        echo "${escapedInput}" | base64 -d > /app/input.json
-        echo "Files created, starting Node..."
-        cd /app && node workflow.js
+    image: node:20-alpine
+    working_dir: /app
+    command: |
+      sh -c "ls -la /app && node /app/workflow.js"
+    volumes:
+      - "\${FILES}:/app"
 `;
   }
 
   private async waitForContainerReady(workloadId: string, publicUrl: string | undefined): Promise<void> {
     if (!publicUrl) {
+      logger.warn({ workloadId }, '[NilCC] No public URL, skipping container ready check');
       return;
     }
 
     const healthUrl = `${publicUrl}/health`;
     const maxWaitAttempts = 60;
     const waitIntervalMs = 2000;
-
-    logger.info({ workloadId }, 'Waiting for container to become ready...');
 
     for (let attempt = 1; attempt <= maxWaitAttempts; attempt++) {
       try {
@@ -151,23 +168,24 @@ class NilCCExecutionService {
         });
 
         if (response.status === 200) {
-          logger.info({ workloadId, attempt }, 'Container is ready');
+          logger.info({ workloadId, attempt }, '[NilCC] Container ready');
           return;
         }
 
-        logger.info({ workloadId, attempt, status: response.status }, 'Container not ready yet...');
+        logger.debug({ workloadId, attempt, status: response.status }, '[NilCC] Container not ready, retrying');
       } catch (error: any) {
-        logger.info({ workloadId, attempt, error: error.message }, 'Waiting for container startup...');
+        logger.debug({ workloadId, attempt, error: error.message }, '[NilCC] Health check failed, retrying');
       }
 
       await this.sleep(waitIntervalMs);
     }
 
-    logger.warn({ workloadId }, 'Container readiness check timed out, proceeding with polling anyway');
+    logger.warn({ workloadId, maxWaitAttempts }, '[NilCC] Container readiness check timed out, proceeding anyway');
   }
 
   private async pollForOutput(workloadId: string, publicUrl: string | undefined, workflowRunId: string): Promise<any> {
     if (!publicUrl) {
+      logger.error({ workloadId, workflowRunId }, '[NilCC] No public URL for polling');
       throw new Error('No public URL available for workload');
     }
 
@@ -178,6 +196,17 @@ class NilCCExecutionService {
     const unlimitedPolling = pollTimeoutMs <= 0;
     const maxAttempts = unlimitedPolling ? Number.MAX_SAFE_INTEGER : Math.max(1, Math.ceil(pollTimeoutMs / pollIntervalMs));
 
+    logger.info({ workloadId, workflowRunId, pollIntervalMs, maxAttempts }, '[NilCC] Starting output polling');
+
+    try {
+      const earlyLogs = await nilccService.getLogs(workloadId, { tail: false });
+      if (earlyLogs) {
+        logger.info({ workloadId, logs: JSON.stringify(earlyLogs).slice(0, 2000) }, '[NilCC] Container startup logs');
+      }
+    } catch (logErr) {
+      logger.warn({ workloadId, error: (logErr as Error).message }, '[NilCC] Could not fetch early container logs');
+    }
+
     let attempt = 1;
     while (unlimitedPolling || attempt <= maxAttempts) {
       try {
@@ -186,7 +215,7 @@ class NilCCExecutionService {
         const outputUrl = `${baseOutputUrl}?_t=${Date.now()}`;
         const response = await axios.get(outputUrl, {
           timeout: 10000,
-          validateStatus: (status) => status < 500,
+          validateStatus: () => true,
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
@@ -194,62 +223,65 @@ class NilCCExecutionService {
           },
         });
 
-        logger.info({ workloadId, attempt, status: response.status }, 'Poll response received');
+        if (attempt === 1 || attempt % 10 === 0) {
+          logger.info({ workloadId, attempt, status: response.status }, '[NilCC] Poll attempt');
+        }
+
+        if (response.status === 500) {
+          const errorBody = typeof response.data === 'object' ? JSON.stringify(response.data) : response.data;
+          logger.error({ workloadId, attempt, errorBody }, '[NilCC] Workflow returned error 500');
+          throw new Error(`Workflow execution failed: ${errorBody}`);
+        }
 
         if (response.status === 200 || response.status === 304) {
           const data = response.data;
           if (data && typeof data === 'object' && data.status === 'processing') {
-            logger.info({ workloadId, attempt }, 'Workflow still processing...');
+            if (attempt === 1 || attempt % 10 === 0) {
+              logger.info({ workloadId, attempt }, '[NilCC] Still processing');
+            }
             attempt += 1;
             continue;
           }
-          if (data && Object.keys(data).length > 0 && !data.status) {
-            logger.info({ workloadId, attempt }, 'Workflow output received');
+          if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+            logger.info({ workloadId, attempt }, '[NilCC] Output received');
             return data;
           }
-          logger.info({ workloadId, attempt, data }, 'Received data but continuing poll...');
-          attempt += 1;
-          continue;
         }
 
         if (response.status === 202) {
-          logger.info({ workloadId, attempt }, 'Workflow still processing (202)...');
+          if (attempt === 1 || attempt % 10 === 0) {
+            logger.info({ workloadId, attempt }, '[NilCC] Processing (202)');
+          }
           attempt += 1;
           continue;
         }
 
-        logger.info({ workloadId, attempt, status: response.status }, 'Unexpected status, retrying...');
+        logger.info({ workloadId, attempt, status: response.status }, '[NilCC] Unexpected status, retrying');
         attempt += 1;
       } catch (error: any) {
         const isLastAttempt = !unlimitedPolling && attempt === maxAttempts;
         if (isLastAttempt) {
-          logger.error({ err: error, workloadId, attempt }, 'Failed to retrieve output after max attempts');
+          logger.error({ err: error, workloadId, attempt }, '[NilCC] Failed to retrieve output after max attempts');
 
           try {
+            logger.info({ workloadId }, '[NilCC] Retrieving logs for debugging');
             const systemLogs = await nilccService.getLogs(workloadId, { tail: false });
-            logger.info({ workloadId, logs: JSON.stringify(systemLogs) }, 'System logs');
-            
-            const containerStdout = await nilccService.getContainerLogs(workloadId, 'compute', { stream: 'stdout' });
-            if (containerStdout) {
-              logger.info({ workloadId, containerLogs: JSON.stringify(containerStdout) }, 'Container stdout');
-            }
-            
-            const containerStderr = await nilccService.getContainerLogs(workloadId, 'compute', { stream: 'stderr' });
-            if (containerStderr) {
-              logger.info({ workloadId, containerLogs: JSON.stringify(containerStderr) }, 'Container stderr');
-            }
+            logger.info({ workloadId, logs: JSON.stringify(systemLogs).slice(0, 3000) }, '[NilCC] System logs');
           } catch (logError) {
-            logger.error({ err: logError, workloadId }, 'Failed to retrieve logs');
+            logger.error({ err: logError, workloadId }, '[NilCC] Failed to retrieve logs');
           }
 
           throw new Error('Nillion compute workload execution timeout');
         }
 
-        logger.info({ workloadId, attempt, error: error.message }, 'Output not ready yet, retrying...');
+        if (attempt === 1 || attempt % 10 === 0) {
+          logger.info({ workloadId, attempt, error: error.message }, '[NilCC] Output not ready, retrying');
+        }
         attempt += 1;
       }
     }
 
+    logger.error({ workloadId, workflowRunId }, '[NilCC] Polling exhausted without output');
     throw new Error('Failed to retrieve output');
   }
 

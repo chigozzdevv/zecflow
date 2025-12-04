@@ -34,7 +34,7 @@ export function WhyZecFlow() {
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-base font-semibold leading-7 text-[#6758c1]">Why ZecFlow</h2>
           <p className="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Visual, block-based Zcash workflows
+            Visual, block-based private workflows
           </p>
           <p className="mt-4 text-lg leading-8 text-zinc-400">
             ZecFlow gives you a visual builder for connecting triggers, Nillion blind compute, and Zcash transfers.

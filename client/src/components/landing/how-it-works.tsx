@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 
 const triggers = [
   { id: 1, name: "Webhook", icon: Webhook },
@@ -298,12 +299,9 @@ export function HowItWorks() {
         <div className="mt-10 text-center">
           <p className="text-zinc-400">
             Ready to build your first workflow?{" "}
-            <a
-              href="#"
-              className="text-[#6758c1] hover:text-[#5344ad] font-semibold transition-colors"
-            >
+            <Link to="/auth" className="text-[#6758c1] hover:text-[#5344ad] font-semibold transition-colors">
               Get started →
-            </a>
+            </Link>
           </p>
         </div>
       </div>

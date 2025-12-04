@@ -10,7 +10,7 @@ import ReactFlow, {
   Handle,
   Position,
 } from "reactflow";
-import type { Connection, Edge, Node, NodeProps, ReactFlowInstance } from "reactflow";
+import type { Connection, Edge, Node, NodeProps, ReactFlowInstance, NodeChange } from "reactflow";
 import "reactflow/dist/style.css";
 import { authorizedRequest, ApiError } from "@/lib/api-client";
 
@@ -38,6 +38,7 @@ type RawBlockItem = {
   connector?: string;
   dependencies?: SerializedDependency[];
   createdAt?: string;
+  position?: { x: number; y: number } | null;
 };
 
 type BlockItem = Omit<RawBlockItem, "dependencies"> & {
@@ -282,7 +283,7 @@ export function DashboardWorkflowPage() {
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blocksError, setBlocksError] = useState<string | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowNodeData>([]);
+  const [nodes, setNodes, reactFlowOnNodesChange] = useNodesState<WorkflowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -388,7 +389,11 @@ export function DashboardWorkflowPage() {
           const label = block.alias || def?.name || block.type;
           const baseX = 120 + (index % 4) * 220;
           const baseY = 80 + Math.floor(index / 4) * 140;
-          const position = { x: baseX, y: baseY };
+          const persistedPosition = block.position;
+          const position =
+            persistedPosition && typeof persistedPosition.x === "number" && typeof persistedPosition.y === "number"
+              ? persistedPosition
+              : { x: baseX, y: baseY };
           return {
             id: block._id,
             position,
@@ -691,6 +696,7 @@ export function DashboardWorkflowPage() {
             order: blocks.length + 1,
             alias: undefined,
             dependencies,
+            position,
           }),
         });
 
@@ -763,6 +769,7 @@ export function DashboardWorkflowPage() {
             order: blocks.length + 1,
             alias: undefined,
             dependencies,
+            position,
           }),
         });
 
@@ -803,6 +810,38 @@ export function DashboardWorkflowPage() {
       }
     },
     [reactFlowInstance, selectedWorkflowId, nodes, blocks, definitions, handleDeleteNode, setEdges, setNodes],
+  );
+
+  const persistNodePosition = useCallback(
+    async (blockId: string, position: { x: number; y: number }) => {
+      try {
+        const res = await authorizedRequest<CreateBlockResponse>(`/blocks/${encodeURIComponent(blockId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ position }),
+        });
+        const updated = normalizeBlockItem(res.block);
+        setBlocks((prev) => prev.map((b) => (b._id === updated._id ? updated : b)));
+      } catch (err) {
+        if (err instanceof ApiError && err.message) {
+          setBlocksError(err.message);
+        } else {
+          setBlocksError("Failed to update block position.");
+        }
+      }
+    },
+    [setBlocks, setBlocksError],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      reactFlowOnNodesChange(changes);
+      changes.forEach((change) => {
+        if (change.type === "position" && change.position && !change.dragging) {
+          void persistNodePosition(change.id, change.position);
+        }
+      });
+    },
+    [reactFlowOnNodesChange, persistNodePosition],
   );
 
   return (
@@ -895,7 +934,7 @@ export function DashboardWorkflowPage() {
                     nodes={nodes}
                     edges={edges}
                     nodeTypes={nodeTypes}
-                    onNodesChange={onNodesChange}
+                    onNodesChange={handleNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
                     onInit={setReactFlowInstance}
