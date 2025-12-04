@@ -1,5 +1,3 @@
-import { Play } from "lucide-react";
-
 export function VideoDemo() {
   return (
     <section id="run-a-demo" className="relative py-24 sm:py-32 overflow-hidden">
@@ -12,19 +10,18 @@ export function VideoDemo() {
         </div>
 
         <div className="relative mx-auto max-w-5xl">
-          {/* Glow effect behind video */}
           <div className="absolute -inset-1 bg-gradient-to-r from-[#6758c1] to-[#5344ad] rounded-2xl blur opacity-30" />
 
           <div className="relative rounded-2xl bg-zinc-900 border border-zinc-800 aspect-video overflow-hidden shadow-2xl">
-            {/* Placeholder for video - replacing with actual video embed later */}
-            <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/50 group cursor-pointer hover:bg-zinc-900/40 transition-colors">
-              <div className="h-20 w-20 rounded-full bg-[#6758c1] flex items-center justify-center pl-1 shadow-lg group-hover:scale-110 transition-transform duration-300">
-                <Play className="h-8 w-8 text-white fill-white" />
-              </div>
-            </div>
-
-            {/* Optional: Placeholder image if no video is playing */}
-            <div className="absolute inset-0 -z-10 bg-gradient-to-br from-zinc-800 to-zinc-900" />
+            <iframe
+              className="absolute inset-0 w-full h-full"
+              src="https://www.youtube.com/embed/9irGzKxLiJs"
+              title="ZecFlow Builder in Action"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+            />
           </div>
         </div>
       </div>
