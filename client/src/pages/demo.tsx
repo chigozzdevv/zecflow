@@ -31,6 +31,9 @@ type MedicalWorkflowResponse = {
   name: string;
   nodes: DemoWorkflowNode[];
   graph?: WorkflowGraphDefinition | null;
+  collectionId?: string | null;
+  datasetId?: string | null;
+  builderDid?: string | null;
 };
 
 type LoanSubmissionResponse = {
@@ -55,6 +58,7 @@ type MedicalDecision = {
   resultKey?: string;
   runId?: string;
   workflowId?: string;
+  collectionId?: string;
 };
 
 export function DemoPage() {
@@ -93,6 +97,10 @@ export function DemoPage() {
   const [loanGraph, setLoanGraph] = useState<WorkflowGraphDefinition | null>(null);
   const [medicalGraph, setMedicalGraph] = useState<WorkflowGraphDefinition | null>(null);
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
+  const [medicalCollectionId, setMedicalCollectionId] = useState<string | null>(null);
+  const [medicalDelegationToken, setMedicalDelegationToken] = useState<string | null>(null);
+  const [medicalDelegationError, setMedicalDelegationError] = useState<string | null>(null);
+  const [medicalDelegationLoading, setMedicalDelegationLoading] = useState(false);
 
   const fetchLoanWorkflow = async () => {
     try {
@@ -113,9 +121,11 @@ export function DemoPage() {
         const med = await request<MedicalWorkflowResponse>("/demo/medical-workflow");
         setMedicalNodes(med.nodes ?? []);
         setMedicalGraph(med.graph ?? buildGraphFromNodes(med.nodes ?? []));
+        setMedicalCollectionId(med.collectionId ?? null);
       } catch {
         setMedicalNodes([]);
         setMedicalGraph(null);
+        setMedicalCollectionId(null);
       }
     })();
   }, []);
@@ -236,6 +246,8 @@ export function DemoPage() {
     e.preventDefault();
     setMedicalError(null);
     setMedicalResult(null);
+    setMedicalDelegationToken(null);
+    setMedicalDelegationError(null);
     setMedicalLoading(true);
     setMedicalRunId(null);
     setMedicalCompletedNodeIds([]);
@@ -256,6 +268,9 @@ export function DemoPage() {
         }),
       });
       setMedicalResult(res);
+      if (res.collectionId) {
+        setMedicalCollectionId(res.collectionId);
+      }
       if (res.runId) {
         setMedicalRunId(res.runId);
       }
@@ -264,6 +279,38 @@ export function DemoPage() {
       setMedicalError(err instanceof Error ? err.message : "Demo failed");
     } finally {
       setMedicalLoading(false);
+    }
+  };
+
+  const handleMedicalDelegation = async () => {
+    if (!medicalResult?.resultKey && !medicalResult?.stateKey && !medicalCollectionId) {
+      setMedicalDelegationError("Result key unavailable.");
+      return;
+    }
+    if (!did) {
+      setMedicalDelegationError("Connect wallet to request delegation.");
+      return;
+    }
+    const inferredCollectionId = medicalCollectionId
+      ?? medicalResult?.resultKey?.split(":")[0]
+      ?? medicalResult?.stateKey?.split(":")[0]
+      ?? null;
+    if (!inferredCollectionId) {
+      setMedicalDelegationError("Collection not found.");
+      return;
+    }
+    setMedicalDelegationLoading(true);
+    setMedicalDelegationError(null);
+    try {
+      const res = await request<{ token: string }>("/demo/delegation", {
+        method: "POST",
+        body: JSON.stringify({ userDid: did, collectionId: inferredCollectionId }),
+      });
+      setMedicalDelegationToken(res.token);
+    } catch (err: any) {
+      setMedicalDelegationError(err instanceof Error ? err.message : "Delegation failed");
+    } finally {
+      setMedicalDelegationLoading(false);
     }
   };
 
@@ -299,13 +346,22 @@ export function DemoPage() {
               value={medicalForm.symptoms}
               onChange={(e) => setMedicalForm((f) => ({ ...f, symptoms: e.target.value }))}
             />
-            <div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-sm w-32"
                 placeholder="Age"
                 value={medicalForm.age}
                 onChange={(e) => setMedicalForm((f) => ({ ...f, age: e.target.value }))}
               />
+              <label className="inline-flex items-center gap-2 text-xs text-zinc-300">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border border-zinc-600 bg-zinc-900"
+                  checked={medicalForm.shieldResult}
+                  onChange={(e) => setMedicalForm((f) => ({ ...f, shieldResult: e.target.checked }))}
+                />
+                Shield detailed diagnosis (store result in NilDB, platform only sees completion)
+              </label>
             </div>
             <button
               type="submit"
@@ -336,6 +392,29 @@ export function DemoPage() {
               )}
               {medicalResult.stateKey && !medicalResult.resultKey && (
                 <div className="text-xs text-zinc-500 break-all">State key (NilDB ref): {medicalResult.stateKey}</div>
+              )}
+              {medicalResult.resultShielded && (
+                <div className="mt-4 space-y-2 text-xs text-zinc-400">
+                  <p>
+                    Use your NilDB client with the result key and a delegation token to read the stored diagnosis.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleMedicalDelegation}
+                    disabled={medicalDelegationLoading || !did}
+                    className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
+                  >
+                    {did ? (medicalDelegationLoading ? "Requesting token…" : "Get delegation token") : "Connect wallet to request token"}
+                  </button>
+                  {medicalDelegationError && (
+                    <p className="text-red-400 text-xs">{medicalDelegationError}</p>
+                  )}
+                  {medicalDelegationToken && (
+                    <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2 text-[10px] text-white break-all">
+                      Delegation token: {medicalDelegationToken}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}

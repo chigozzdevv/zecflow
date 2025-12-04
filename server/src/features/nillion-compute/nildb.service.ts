@@ -349,10 +349,8 @@ class NilDBService {
     const key = typeof payload.key === 'string' && payload.key.length ? payload.key : 'default';
     const payloadData = payload.data as Record<string, unknown> | undefined;
     const data = payloadData ?? payload;
-    const compositeKey = `${collectionId}:${key}`;
-
-    await this.putDocument(collectionId, compositeKey, data, undefined, options);
-    return compositeKey;
+    await this.putDocument(collectionId, key, data, undefined, options);
+    return `${collectionId}:${key}`;
   }
 
   async storeEncryptedShares(

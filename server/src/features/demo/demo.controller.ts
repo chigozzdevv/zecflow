@@ -249,8 +249,33 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
     return;
   }
 
+  const demoMedicalWorkflowId = process.env.DEMO_MEDICAL_WORKFLOW_ID;
+  if (!demoMedicalWorkflowId) {
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'DEMO_MEDICAL_WORKFLOW_ID is not configured' });
+    return;
+  }
+
   try {
-    const stateKey = await nildbService.storeState('demo-medical', {
+    const workflow = await WorkflowModel.findById(demoMedicalWorkflowId).lean();
+    if (!workflow || workflow.status !== 'published') {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo medical workflow not found or not published' });
+      return;
+    }
+
+    let collectionId: string | null = null;
+    if (workflow.dataset) {
+      const ds = await DatasetModel.findById(workflow.dataset).lean();
+      if (ds && typeof ds.nildbCollectionId === 'string') {
+        collectionId = ds.nildbCollectionId;
+      }
+    }
+
+    if (!collectionId) {
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Medical collection is not configured' });
+      return;
+    }
+
+    const stateKey = await nildbService.storeState(collectionId, {
       data: { symptoms, age },
     }, { encryptAll: true });
 
@@ -264,20 +289,9 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
       }
     }
 
-    const demoMedicalWorkflowId = process.env.DEMO_MEDICAL_WORKFLOW_ID;
-    if (!demoMedicalWorkflowId) {
-      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'DEMO_MEDICAL_WORKFLOW_ID is not configured' });
-      return;
-    }
-
-    const workflow = await WorkflowModel.findById(demoMedicalWorkflowId);
-    if (!workflow || workflow.status !== 'published') {
-      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo medical workflow not found or not published' });
-      return;
-    }
-
+    const workflowId = workflow._id.toString();
     const run = await createRun({
-      workflowId: workflow.id,
+      workflowId,
       payload: {
         source: 'demo-medical',
         stateKey,
@@ -292,7 +306,8 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
         resultShielded: true,
         resultKey: stateKey,
         runId: run.id,
-        workflowId: workflow.id,
+        workflowId,
+        collectionId,
       });
       return;
     }
@@ -303,7 +318,8 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
       diagnosis,
       stateKey,
       runId: run.id,
-      workflowId: workflow.id,
+      workflowId,
+      collectionId,
     });
   } catch (err) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Demo medical evaluation failed' });
@@ -362,7 +378,19 @@ export const demoMedicalWorkflowHandler = async (_req: Request, res: Response): 
     position: n.position,
   }));
 
-  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, graph });
+  let collectionId: string | null = null;
+  let datasetId: string | null = null;
+  if (workflow.dataset) {
+    const ds = await DatasetModel.findById(workflow.dataset).lean();
+    if (ds && typeof ds.nildbCollectionId === 'string') {
+      collectionId = ds.nildbCollectionId;
+      datasetId = ds._id.toString();
+    }
+  }
+
+  const builderDid = await nildbService.getBuilderDid();
+
+  res.json({ id: workflow._id.toString(), name: workflow.name, nodes, graph, collectionId, datasetId, builderDid });
 };
 
 export const demoDelegationHandler = async (req: Request, res: Response): Promise<void> => {

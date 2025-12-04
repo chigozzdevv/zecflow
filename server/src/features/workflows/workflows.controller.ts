@@ -100,7 +100,7 @@ async function generateIntegrationSnippet(workflow: { dataset?: any; trigger?: a
     ``,
     `const BUILDER_DID = '${builderDid}';`,
     `const COLLECTION_ID = '${collectionId}';`,
-    `const ZECFLOW_API_URL = '${process.env.ZECFLOW_API_URL || 'https://api.zecflow.com'}';`,
+    `const ZECFLOW_API_URL = '${process.env.ZECFLOW_API_URL || 'https://zecflow.onrender.com'}';`,
     ``,
     `export function ZecflowWorkflowForm({ nillionClient, ownerDid }: Props) {`,
     `  const [values, setValues] = useState<FormValues>({`,
