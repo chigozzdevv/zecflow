@@ -1,4 +1,6 @@
 import http from 'http';
+import https from 'https';
+import { URL } from 'url';
 import app from '@/app';
 import { envConfig } from '@/config/env';
 import { connectMongo } from '@/config/mongo';
@@ -22,6 +24,34 @@ const start = async (): Promise<void> => {
     server.listen(envConfig.PORT, () => {
       logger.info(`Server running on port ${envConfig.PORT}`);
     });
+
+    const keepAliveUrl = envConfig.PUBLIC_URL;
+    const keepAliveIntervalMs = envConfig.KEEP_ALIVE_INTERVAL_MS ?? 10 * 60 * 1000;
+    let keepAliveInterval: NodeJS.Timer | undefined;
+
+    try {
+      const parsedUrl = new URL(keepAliveUrl);
+      const client = parsedUrl.protocol === 'https:' ? https : http;
+
+      const ping = () => {
+        const requestStart = Date.now();
+        const req = client.get(keepAliveUrl, (res) => {
+          res.on('data', () => {});
+          res.on('end', () => {
+            logger.debug({ status: res.statusCode, elapsedMs: Date.now() - requestStart }, 'Keep-alive ping succeeded');
+          });
+        });
+
+        req.on('error', (err) => {
+          logger.warn({ err }, 'Keep-alive ping failed');
+        });
+      };
+
+      keepAliveInterval = setInterval(ping, keepAliveIntervalMs);
+      ping();
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to initialize keep-alive ping');
+    }
   } catch (error) {
     logger.error({ err: error }, 'Failed to start server');
     process.exit(1);

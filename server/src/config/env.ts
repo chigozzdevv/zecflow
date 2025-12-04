@@ -48,6 +48,7 @@ const envSchema = z.object({
   PUBLIC_URL: z.string().url(),
   ENCRYPTION_KEY: z.string().min(16),
   CORS_ORIGINS: z.string().optional(),
+  KEEP_ALIVE_INTERVAL_MS: z.coerce.number().optional(),
 });
 
 export const envConfig = envSchema.parse(process.env);
