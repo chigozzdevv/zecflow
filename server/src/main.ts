@@ -1,3 +1,4 @@
+import 'tsconfig-paths/register';
 import http from 'http';
 import https from 'https';
 import { URL } from 'url';
