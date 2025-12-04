@@ -1,208 +1,397 @@
-# ZecFlow Automation Platform
+# ZecFlow
 
-ZecFlow is a full-stack reference implementation that demonstrates how to orchestrate privacy-preserving workflows on top of the Nillion network. It combines an Express/Mongo backend that manages workflows, runs, NilAI/NilDB interactions and background jobs, with a Vite/React frontend that showcases interactive demos (medical diagnosis, loan evaluation) and a builder dashboard.
+ZecFlow is a privacy-preserving automation platform for building workflows that combine Zcash shielded transactions with Nillion blind compute. Data stays encrypted from input to output—the platform orchestrates execution without accessing the underlying values and provides cryptographic attestations after each run to prove correct execution.
+
+We built two demo workflows using ZecFlow: a private medical diagnosis system and a confidential loan evaluation pipeline. Both use Nillion blind compute blocks to process sensitive data without exposing it. Try them here: **https://zecflow.vercel.app/demo**
 
 ## Table of Contents
 
-1. [Architecture Overview](#architecture-overview)
-   1. [Repository Layout](#repository-layout)
-   2. [Server Architecture](#server-architecture)
-   3. [Workflow Engine & Blocks](#workflow-engine--blocks)
-   4. [Nillion Integrations](#nillion-integrations)
-   5. [Frontend Experience](#frontend-experience)
-2. [Key Features](#key-features)
-3. [Environment Configuration](#environment-configuration)
-   1. [Server Environment Variables](#server-environment-variables)
-   2. [Client Environment Variables](#client-environment-variables)
-4. [Development Setup](#development-setup)
-   1. [Prerequisites](#prerequisites)
-   2. [Install & Run](#install--run)
-   3. [Build Scripts](#build-scripts)
-5. [Operational Notes](#operational-notes)
-   1. [Background Jobs & Queues](#background-jobs--queues)
-   2. [Keep-Alive Pings](#keep-alive-pings)
-6. [API Surface](#api-surface)
-7. [Security & Secrets](#security--secrets)
-8. [Troubleshooting](#troubleshooting)
+1. [Core Concepts](#core-concepts)
+2. [The Privacy Stack](#the-privacy-stack)
+   - [Nillion Blind Compute](#nillion-blind-compute)
+   - [Zcash Shielded Transfers](#zcash-shielded-transfers)
+   - [Input, Transform, and Action Blocks](#input-transform-and-action-blocks)
+3. [Triggers](#triggers)
+4. [Datasets](#datasets)
+5. [Connectors](#connectors)
+6. [Integration After Publish](#integration-after-publish)
+7. [Project Structure](#project-structure)
+8. [Getting Started](#getting-started)
+9. [Environment Variables](#environment-variables)
+10. [API Endpoints](#api-endpoints)
 
-## Architecture Overview
+## Core Concepts
 
-### Repository Layout
+A workflow in ZecFlow consists of:
+
+- **Trigger**: The event that starts the workflow (webhook, Zcash transaction, schedule, etc.)
+- **Dataset**: Defines the input schema and provisions a NilDB collection for encrypted storage
+- **Blocks**: The processing steps that transform, compute, and act on data
+- **Connectors**: External service configurations (APIs, Zcash nodes) used by triggers and blocks
+
+When a workflow runs:
+1. The trigger fires with a payload
+2. Blocks execute in sequence based on the workflow graph
+3. Each block reads from memory (previous outputs) and writes results back
+4. Final outputs can settle on Zcash or call external services
+
+## The Privacy Stack
+
+### Nillion Blind Compute
+
+Nillion provides three components for private computation:
+
+**NilDB (Blind State Storage)**
+
+Encrypted key-value storage where data is never decrypted on the server. ZecFlow uses NilDB to store workflow inputs, intermediate state, and results.
+
+| Block | Purpose |
+|-------|---------|
+| `state-store` | Write encrypted data to a NilDB collection. Supports field-level encryption with configurable keys. |
+| `state-read` | Read encrypted data back using a state key. Returns decrypted values to the workflow memory. |
+
+**NilAI (Private Reasoning)**
+
+Large language model inference that operates on encrypted references. The model receives aliases pointing to NilDB records instead of raw data.
+
+| Block | Purpose |
+|-------|---------|
+| `nilai-llm` | Run LLM inference with a prompt template. Variables in the template reference encrypted NilDB aliases. Returns text output with optional attestation. |
+
+**NilCC (Blind Compute Cluster)**
+
+Execute arbitrary computations on encrypted inputs inside a trusted execution environment. Results include cryptographic attestations proving correct execution.
+
+| Block | Purpose |
+|-------|---------|
+| `nillion-compute` | Execute a registered NilCC workload with secret inputs. Returns computed result and attestation. |
+| `nillion-block-graph` | Run a visual graph of Nillion compute blocks (math, logic, comparison) inside TEE. |
+
+**Math Blocks** (executed via NilCC):
+
+| Block | Operation |
+|-------|-----------|
+| `math-add` | Add two numbers |
+| `math-subtract` | Subtract second from first |
+| `math-multiply` | Multiply two numbers |
+| `math-divide` | Divide first by second |
+| `math-greater-than` | Return true if a > b |
+
+**Logic Blocks**:
+
+| Block | Operation |
+|-------|-----------|
+| `logic-if-else` | Return one of two values based on a boolean condition |
+
+### Zcash Shielded Transfers
+
+Zcash provides the settlement layer. Shielded transactions keep sender, receiver, and amount private on-chain while still allowing structured data in encrypted memos.
+
+| Block | Purpose |
+|-------|---------|
+| `zcash-send` | Send ZEC from a shielded address. Supports configurable privacy policy, memo content, and amount from workflow data. |
+| `memo-parser` | Parse a Zcash memo string into key-value pairs using a delimiter. Useful for extracting structured data from incoming transactions. |
+
+The `zcash-send` block supports these privacy policies:
+- `FullPrivacy` - Default. All transaction details are shielded.
+- `AllowRevealedAmounts` - Amount visible, addresses hidden.
+- `AllowRevealedRecipients` - Recipient visible, sender and amount hidden.
+- `AllowRevealedSenders` - Sender visible, recipient and amount hidden.
+- `NoPrivacy` - Fully transparent transaction.
+
+### Input, Transform, and Action Blocks
+
+These blocks handle data extraction and external calls:
+
+| Block | Category | Purpose |
+|-------|----------|---------|
+| `payload-input` | Input | Extract the trigger payload or a nested path from it. |
+| `json-extract` | Transform | Pull a specific value from payload or memory and store it under an alias. |
+| `connector-request` | Action | Call a REST endpoint through a configured connector. |
+| `custom-http-action` | Action | Call any HTTP endpoint with method, headers, and body from workflow data. |
+
+## Triggers
+
+Triggers define what starts a workflow. Each trigger type has specific configuration options.
+
+| Trigger | Category | Description | Config Options |
+|---------|----------|-------------|----------------|
+| `http-webhook` | Webhook | Fire when an HTTP POST hits the webhook URL | `path`, `secret` (optional HMAC validation) |
+| `zcash-transaction` | Blockchain | Fire when a shielded transaction matches criteria | `address`, `memoPattern`, `minAmount`, `minConfirmations` |
+| `schedule` | Schedule | Fire on a cron schedule | `expression` (cron syntax) |
+| `twitter-post` | Social | Fire when a Twitter account posts or is mentioned | `handle`, `filter`, `eventType`, `pollIntervalSec` |
+| `github-commit` | Code | Fire when commits land on a branch | `branch`, `includePaths`, `excludePaths` |
+| `custom-http-poll` | Data | Periodically poll an HTTP endpoint for new records | `relativePath`, `method`, `pollIntervalSec`, `recordsPath` |
+
+**Zcash Transaction Trigger**
+
+The Zcash watcher polls for incoming shielded transactions every 30 seconds. When a transaction matches the configured criteria (address, memo pattern, minimum amount), it creates a workflow run with the transaction data as payload:
+
+```json
+{
+  "txid": "abc123...",
+  "amount": 1.5,
+  "memo": "ORDER:12345",
+  "address": "zs1...",
+  "confirmations": 3,
+  "blockheight": 2000000
+}
+```
+
+## Datasets
+
+A dataset defines the schema for workflow inputs and provisions a NilDB collection for encrypted storage.
+
+When you create a dataset:
+1. You specify a JSON schema describing the expected fields and types
+2. ZecFlow generates a unique collection ID
+3. A NilDB collection is created with the schema
+
+When you link a dataset to a workflow:
+- The dataset schema defines what fields the workflow expects
+- Input data is stored encrypted in the NilDB collection
+- Blocks can reference this data using state keys
+
+Example dataset schema:
+```json
+{
+  "type": "object",
+  "properties": {
+    "fullName": { "type": "string" },
+    "income": { "type": "number" },
+    "requestedAmount": { "type": "number" },
+    "country": { "type": "string" }
+  },
+  "required": ["fullName", "income", "requestedAmount"]
+}
+```
+
+This schema:
+- Creates form fields for the integration snippet
+- Validates incoming data
+- Determines which fields get encrypted in NilDB
+
+## Connectors
+
+Connectors store external service configurations. They keep credentials encrypted and provide reusable connections for triggers and blocks.
+
+Types of connectors:
+- **HTTP API**: Base URL, authentication headers, API keys
+- **Zcash Node**: RPC endpoint, viewing keys, rescan settings
+
+Connectors are referenced by:
+- `custom-http-poll` triggers (to poll external APIs)
+- `connector-request` blocks (to call APIs during workflow execution)
+- `zcash-transaction` triggers (to watch specific addresses with viewing keys)
+
+## Integration After Publish
+
+When you publish a workflow that has a dataset, ZecFlow generates a React integration snippet. This snippet provides a ready-to-use form component that:
+
+1. Renders input fields based on the dataset schema
+2. Connects to the Nillion SecretVault client
+3. Requests a delegation token from ZecFlow
+4. Stores user data encrypted in NilDB with proper access control
+5. Submits the state key to trigger the workflow
+
+Example generated snippet structure:
+
+```tsx
+import { useState } from 'react';
+import type { SecretVaultUserClient } from '@nillion/secretvaults';
+
+const BUILDER_DID = 'did:nil:builder123...';
+const COLLECTION_ID = 'col_abc123...';
+const ZECFLOW_API_URL = 'https://zecflow.onrender.com';
+
+export function ZecflowWorkflowForm({ nillionClient, ownerDid }) {
+  const [values, setValues] = useState({
+    fullName: '',
+    income: '',
+    requestedAmount: '',
+  });
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    
+    // 1. Get delegation token from ZecFlow
+    const delegationRes = await fetch(ZECFLOW_API_URL + '/api/delegation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userDid: ownerDid, collectionId: COLLECTION_ID }),
+    });
+    const { token } = await delegationRes.json();
+
+    // 2. Store data encrypted in NilDB
+    const createResponse = await nillionClient.createData(
+      {
+        owner: ownerDid,
+        collection: COLLECTION_ID,
+        data: [{ fullName: values.fullName, income: Number(values.income), ... }],
+        acl: { grantee: BUILDER_DID, read: true, write: false, execute: true },
+      },
+      { auth: { delegation: token } },
+    );
+
+    // 3. Submit state key to trigger workflow
+    const documentId = createResponse[...].data.created[0];
+    const stateKey = COLLECTION_ID + ':' + documentId;
+    await fetch('https://your-inbox-endpoint.com', {
+      method: 'POST',
+      body: JSON.stringify({ stateKey }),
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Generated form fields */}
+    </form>
+  );
+}
+```
+
+The workflow then:
+1. Receives the state key via its trigger
+2. Uses `state-read` blocks to access the encrypted data
+3. Processes with Nillion compute blocks
+4. Outputs results or settles on Zcash
+
+## Project Structure
 
 ```
 zecflow/
-├── client/        # Vite + React frontend (demo UI & dashboard)
-├── server/        # Express backend (workflows, NilAI/NilDB, jobs)
+├── client/                    # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── landing/       # Landing page sections
+│   │   │   ├── demo/          # Demo UI components
+│   │   │   └── dashboard/     # Builder dashboard components
+│   │   ├── pages/
+│   │   │   ├── landing-page.tsx
+│   │   │   ├── demo.tsx       # Interactive demos
+│   │   │   └── dashboard/     # Workflow builder UI
+│   │   ├── context/           # Nillion user context
+│   │   └── services/          # API client
+│   └── ...
+├── server/                    # Express backend
+│   ├── src/
+│   │   ├── features/
+│   │   │   ├── auth/          # JWT authentication
+│   │   │   ├── blocks/        # Block registry and handlers
+│   │   │   ├── connectors/    # External service configs
+│   │   │   ├── datasets/      # Input schemas and NilDB provisioning
+│   │   │   ├── demo/          # Public demo endpoints
+│   │   │   ├── nillion-compute/
+│   │   │   │   ├── nilai.service.ts   # NilAI client
+│   │   │   │   ├── nildb.service.ts   # NilDB operations
+│   │   │   │   └── nilcc.service.ts   # NilCC execution
+│   │   │   ├── runs/          # Workflow execution records
+│   │   │   ├── triggers/      # Trigger registry and handlers
+│   │   │   ├── workflows/     # Workflow engine
+│   │   │   └── zcash-execution/
+│   │   │       ├── zcash-watcher.ts   # Transaction polling
+│   │   │       └── ...
+│   │   ├── queues/            # BullMQ job processors
+│   │   └── shared/
+│   │       └── services/
+│   │           └── zcash.service.ts   # Zcash RPC client
+│   └── ...
 └── README.md
 ```
 
-Both packages are independent Node projects with their own dependencies and scripts. The root directory intentionally contains no additional runtime dependencies.
-
-### Server Architecture
-
-* **Runtime:** Node 20+, Express 5, TypeScript compiled to CommonJS.
-* **Persistence:** MongoDB via Mongoose (workflows, runs, submissions, datasets, connectors, jobs).
-* **Queueing:** BullMQ (Redis) powers the run queue (`startRunWorker`) and scheduled jobs (`initializeTriggerSchedules`, `startCustomPollRunner`, `startTwitterPollRunner`).
-* **Security:** JWT auth for dashboard APIs, Zod-based env validation, Helmet + configurable CORS.
-* **Nillion Services:**
-  * `@nillion/nilai-ts` for NilAI completions & attestations.
-  * `@nillion/secretvaults` + `@nillion/nuc` for NilDB builder operations, delegation tokens, and user decrypt flows.
-* **Structure:** `server/src/features` groups domain logic (auth, demo, workflows, runs, nillion-compute, etc.), while `server/src/config` hosts bootstrap code (env, Mongo, app). Entry point `src/main.ts` wires everything, starts the HTTP server, background workers, and keep-alive pings.
-
-### Workflow Engine & Blocks
-
-Workflows are stored collections of directed graphs (nodes + edges) that describe automation pipelines. Each node references a block implementation (NilAI step, NilDB store, connector call, logic op, etc.). The engine (`features/workflows/workflows.engine.ts`) loads the graph, topologically sorts nodes, and executes them:
-
-1. **Inputs** capture initial payload fields (e.g., `stateKey`, `shieldResult`).
-2. **Blocks** invoke handlers (NilAI inference, NilDB state store, connector HTTP call, math primitives). Batchable Nillion blocks can be executed together for efficiency.
-3. **Outputs** collect node results for downstream consumers and are persisted on the run record.
-
-Runs are created via API (builder dashboard, demo flows, or automation triggers). Each run is persisted (`RunModel`) and processed by the BullMQ worker, which executes the workflow engine and updates status (`pending → running → succeeded/failed`).
-
-### Nillion Integrations
-
-ZecFlow demonstrates multiple ways to interact with the Nillion network:
-
-| Component | Purpose |
-|-----------|---------|
-| **NilAIService** (`features/nillion-compute/nilai.service.ts`) | Wraps NilAI OpenAI-compatible client, handles authentication tokens, retries, attestation fetch & compaction, and exposes helper methods (`runInference`, `generateStructured`). |
-| **NilDBService** (`features/nillion-compute/nildb.service.ts`) | Manages the builder client, ensures collections exist, encrypts payloads, writes/reads documents, issues delegation tokens scoped to `/nil/db/data/read`, and provides helper functions (state storage, share storage). |
-| **Demo endpoints** (`features/demo`) | Orchestrate high-level flows that combine NilAI completions with NilDB storage/shielding and delegation-token-based decrypt flows. |
-
-Key flows:
-
-* **Medical diagnosis demo:**
-  1. User submits symptoms. Backend stores the input in NilDB (encrypted) and kicks off the workflow (`DEMO_MEDICAL_WORKFLOW_ID`).
-  2. Workflow runs NilAI for diagnosis, stores the attested result in NilDB, and shields the payload (Blindfold).
-  3. Client fetches attestation metadata via `/api/demo/medical-result`, and “Reveal diagnosis” calls the same endpoint to pull the plaintext extracted server-side via NilDB builder access.
-* **Loan evaluation demo:** similar pipeline but focuses on NilCC execution and NilDB state references.
-
-### Frontend Experience
-
-The React app is split into two major surfaces:
-
-1. **Demo page (`client/src/pages/demo.tsx`):** interactive medical/loan flows, attestation display, shielded result reveal, NilAI metadata, and run progression.
-2. **Dashboard (`client/src/pages/dashboard`)**: builder-facing overview with stats, run success timelines, last runs (sourced from `/api/demo/runs` or authenticated `/api/runs`), workflow/trigger/connector navigation, and quick actions.
-
-The UI uses Tailwind-like utility classes (via custom CSS), Lucide icons, Headless UI components, React Query for data fetching, and React Router for navigation. Nilion’s SecretVault user client is leveraged directly on the demo page when needed.
-
-## Key Features
-
-* **Workflow orchestration** with Nillion-aware blocks, storing state and outputs in NilDB.
-* **NilAI attestation pipeline**: fetches, hashes, and surfaces CPU/GPU attestation (with optional raw report link) per run.
-* **Shielded diagnosis UX**: results are stored encrypted by the builder and only revealed to the user via a backend decrypt helper.
-* **Demo run aggregation**: public endpoint `/api/demo/runs` powers the dashboard even without auth, while `/api/runs` serves authenticated organizations.
-* **Background jobs**: custom pollers, schedule runner, run worker, and keep-alive ping keep Render dynos active.
-
-## Environment Configuration
-
-### Server Environment Variables
-
-Copy `server/.env.example` to `server/.env` and update the values:
-
-| Variable | Description |
-|----------|-------------|
-| `PORT` | HTTP port for the Express server (default `4000`). |
-| `NODE_ENV` | `development`, `test`, or `production`. |
-| `MONGO_URI` | MongoDB connection string. |
-| `PUBLIC_URL` | Base URL the server is reachable at (used for keep-alive pings). |
-| `ENCRYPTION_KEY` | 32-byte hex string for field-level encryption. |
-| `CORS_ORIGINS` | Comma-separated list of allowed Origins (omit to allow all). |
-| `KEEP_ALIVE_INTERVAL_MS` | Optional interval (ms) for Render keep-alive pings (default 10 minutes). |
-| `JWT_SECRET`, `JWT_EXPIRES_IN`, `REFRESH_TOKEN_SECRET`, `REFRESH_TOKEN_EXPIRES_IN` | Dashboard auth tokens. |
-| `NILCC_*`, `NILDB_*`, `NILAI_*` | Credentials/endpoints for NilCC, NilDB, NilAI. |
-| `ZCASH_*` | Zcash RPC endpoints and credentials if running Zcash blocks. |
-| `QUEUE_REDIS_URL` | Redis URL for BullMQ. |
-| `DEMO_LOAN_WORKFLOW_ID`, `DEMO_MEDICAL_WORKFLOW_ID` | IDs of the published demo workflows in Mongo. |
-
-### Client Environment Variables
-
-Copy `client/.env.example` to `client/.env`:
-
-| Variable | Description |
-|----------|-------------|
-| `VITE_API_URL` | Base URL (including `/api`) for the backend. Example: `http://localhost:4000/api`. |
-
-The client `.env` is ignored by Git; keep `.env.example` updated for others.
-
-## Development Setup
+## Getting Started
 
 ### Prerequisites
 
-* Node.js 20+
-* npm 9+
-* MongoDB (local or Atlas) and Redis (for queue processing)
+- Node.js 20+
+- MongoDB
+- Redis
+- Zcash node (optional, for shielded transfers)
 
-### Install & Run
+### Installation
 
 ```bash
+git clone https://github.com/chigozzdevv/zecflow.git
+cd zecflow
+
 # Server
 cd server
 npm install
-cp .env.example .env   # edit values
-npm run dev             # starts Express with ts-node-dev
+cp .env.example .env  # Configure environment variables
 
 # Client
 cd ../client
 npm install
-cp .env.example .env    # edit VITE_API_URL if needed
-npm run dev             # starts Vite dev server on http://localhost:5173
+cp .env.example .env  # Set VITE_API_URL
 ```
 
-The frontend proxies API calls to `VITE_API_URL`, so ensure the server is reachable there (default `http://localhost:4000/api`).
+### Running
 
-### Build Scripts
+```bash
+# Terminal 1 - Server
+cd server
+npm run dev
 
-* `npm run build` (server) transpiles TypeScript to `dist/`.
-* `npm run start` (server) runs the compiled bundle.
-* `npm run build` (client) performs a type check and Vite production build (output in `client/dist`).
-* `npm run preview` (client) serves the built assets locally.
+# Terminal 2 - Client
+cd client
+npm run dev
+```
 
-## Operational Notes
+Server runs on `http://localhost:4000`, client on `http://localhost:5173`.
 
-### Background Jobs & Queues
+## Environment Variables
 
-* **BullMQ worker (`startRunWorker`)** pulls queued workflow runs and executes them via the engine.
-* **Schedule runners** (`initializeTriggerSchedules`, `startCustomPollRunner`, `startTwitterPollRunner`) poll external sources and enqueue runs.
-* **NilCC watcher** monitors compute workflows on the Nillion Compute Cluster (NilCC).
+### Server
 
-Redis must be reachable via `QUEUE_REDIS_URL` for these components to function.
+| Variable | Description |
+|----------|-------------|
+| `PORT` | HTTP port (default: 4000) |
+| `MONGO_URI` | MongoDB connection string |
+| `QUEUE_REDIS_URL` | Redis URL for BullMQ |
+| `JWT_SECRET` | Secret for JWT token signing |
+| `ENCRYPTION_KEY` | 32-byte hex string for field encryption |
+| `NILDB_ENABLED` | Enable NilDB integration (true/false) |
+| `NILDB_NODES` | JSON array of NilDB node configs |
+| `NILLION_API_KEY` | Nillion API key for NilDB/NilAI |
+| `NILAI_API_URL` | NilAI endpoint URL |
+| `NILAI_API_KEY` | NilAI API key |
+| `NILCC_ENABLED` | Enable NilCC integration |
+| `NILCC_API_URL` | NilCC endpoint URL |
+| `ZCASH_RPC_URL` | Zcash node RPC endpoint |
+| `ZCASH_RPC_USER` | Zcash RPC username |
+| `ZCASH_RPC_PASSWORD` | Zcash RPC password |
 
-### Keep-Alive Pings
+### Client
 
-Deployments on Render (or similar platforms) may idle after periods of inactivity. The server now performs periodic GET requests to `PUBLIC_URL` every `KEEP_ALIVE_INTERVAL_MS` milliseconds (default 10 minutes) to keep the instance warm. If your hosting platform does not require this, set a large interval or remove the variable.
+| Variable | Description |
+|----------|-------------|
+| `VITE_API_URL` | Backend API URL (e.g., `http://localhost:4000/api`) |
 
-## API Surface
+## API Endpoints
 
-The backend exposes a combination of authenticated and public routes. Highlights:
+### Public (Demo)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST /api/demo/medicals` | Submits a medical diagnosis request, stores payload in NilDB, and kicks off the workflow. |
-| `GET /api/demo/run-status/:runId` | Poll run progress for demo workflows. |
-| `GET /api/demo/medical-result` | Fetch attestation metadata and decrypted diagnosis for a NilDB result key. |
-| `GET /api/demo/medical-attestation` | Proxy NilAI attestation report. |
-| `GET /api/demo/runs` | Latest runs for published demo workflows (powering the dashboard when unauthenticated). |
-| `POST /api/demo/delegation` | Issue a delegation token (scoped to `/nil/db/data/read`) for user NilDB clients. |
-| Authenticated CRUD routes | `/api/workflows`, `/api/triggers`, `/api/connectors`, `/api/runs`, etc., for builder dashboard management. |
+| POST | `/api/demo/medicals` | Submit medical diagnosis request |
+| POST | `/api/demo/loan-app` | Submit loan application |
+| GET | `/api/demo/run-status/:runId` | Get workflow run status |
+| GET | `/api/demo/runs` | List recent demo runs |
+| GET | `/api/demo/medical-result` | Get diagnosis result and attestation |
+| POST | `/api/demo/delegation` | Get NilDB delegation token |
 
-Refer to `server/src/features/*/*.route.ts` for the complete list of routes and handlers.
+### Authenticated (Dashboard)
 
-## Security & Secrets
-
-* **Environment files:** `server/.env` and `client/.env` are ignored by Git; only `.env.example` files are tracked. If sensitive values were previously committed, regenerate them and force-remove the old history if necessary.
-* **Delegation tokens:** The backend never exposes raw NilDB delegation tokens in the UI; diagnosis reveals occur server-side via builder credentials.
-* **CORS:** Restrict `CORS_ORIGINS` to your trusted frontend domains in production.
-* **Encryption key:** Use a unique 32-byte hex string in `ENCRYPTION_KEY` to encrypt sensitive fields before NilDB writes.
-
-## Troubleshooting
-
-| Symptom | Likely Cause | Fix |
-|---------|--------------|-----|
-| Dashboard runs show `0% success` despite demo completions | Authenticated `/api/runs` response contains only failed runs; demo runs now stay as the fallback unless successful runs exist. If you still see `0%`, ensure `/api/demo/runs` is reachable and that the frontend can access it through `VITE_API_URL`. |
-| Client requests fail with CORS errors | Verify `CORS_ORIGINS` includes the frontend origin (e.g., `http://localhost:5173`). |
-| Render idles the server | Confirm `PUBLIC_URL` is set to the deployed base URL and optionally adjust `KEEP_ALIVE_INTERVAL_MS`. |
-| NilAI attestation link returns 401 | Use the proxied `/api/demo/medical-attestation` link surfaced in the UI; the raw NilAI endpoint requires NilAuth credentials. |
-| NilDB read 401 from the browser | The frontend no longer reads NilDB directly; if you forked older code, ensure delegation tokens target `/nil/db/data/read` and use the server helper instead. |
-
-For deeper inspection, consult the server logs (Pino) and the BullMQ dashboard (if enabled) to trace workflow execution steps.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/workflows` | List workflows |
+| POST | `/api/workflows` | Create workflow |
+| POST | `/api/workflows/:id/publish` | Publish workflow, get integration snippet |
+| GET | `/api/workflows/:id/snippet` | Get integration snippet |
+| GET | `/api/datasets` | List datasets |
+| POST | `/api/datasets` | Create dataset (provisions NilDB collection) |
+| GET | `/api/triggers` | List triggers |
+| POST | `/api/triggers` | Create trigger |
+| GET | `/api/connectors` | List connectors |
+| POST | `/api/connectors` | Create connector |
+| GET | `/api/runs` | List workflow runs |
