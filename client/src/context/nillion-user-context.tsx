@@ -4,11 +4,13 @@ import { Signer } from '@nillion/nuc';
 import { SecretVaultUserClient } from '@nillion/secretvaults';
 import { NILLION_NILDB_URLS } from '@/config/nillion';
 
+type ConnectResult = { client: SecretVaultUserClient; did: string };
+
 type NillionUserContextValue = {
   client: SecretVaultUserClient | null;
   did: string | null;
   initializing: boolean;
-  connect: () => Promise<void>;
+  connect: () => Promise<ConnectResult>;
 };
 
 const NillionUserContext = createContext<NillionUserContextValue | undefined>(undefined);
@@ -18,7 +20,10 @@ export function NillionUserProvider({ children }: { children: ReactNode }) {
   const [did, setDid] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(false);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (): Promise<ConnectResult> => {
+    if (client && did) {
+      return { client, did };
+    }
     if (typeof window === 'undefined' || !(window as any).ethereum) {
       throw new Error('Ethereum provider not available');
     }
@@ -38,13 +43,14 @@ export function NillionUserProvider({ children }: { children: ReactNode }) {
       setClient(userClient);
       setDid(didObj.didString);
       console.log('[Nillion] Connected with DID:', didObj.didString);
+      return { client: userClient, did: didObj.didString };
     } catch (err) {
       console.error('[Nillion] Connection failed:', err);
       throw err;
     } finally {
       setInitializing(false);
     }
-  }, []);
+  }, [client, did]);
 
   const value = useMemo(
     () => ({ client, did, initializing, connect }),

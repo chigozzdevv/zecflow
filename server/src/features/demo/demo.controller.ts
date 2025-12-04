@@ -5,11 +5,70 @@ import { WorkflowModel } from '@/features/workflows/workflows.model';
 import { RunModel } from '@/features/runs/runs.model';
 import { DemoSubmissionModel } from './demo.model';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
+import { nilaiService } from '@/features/nillion-compute/nilai.service';
 import { DatasetModel } from '@/features/datasets/datasets.model';
 import { buildGraphFromBlocks } from '@/features/workflows/workflows.service';
 import type { WorkflowGraph } from '@/features/workflows/workflows.types';
 
 import { logger } from '@/utils/logger';
+
+const unwrapNilDbValue = (value: unknown): string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const allot = record['%allot'];
+    if (typeof allot === 'string') {
+      return allot;
+    }
+    if (allot && typeof allot === 'object') {
+      try {
+        return JSON.stringify(allot);
+      } catch {
+        /* ignore */
+      }
+    }
+    const nestedKeys = ['message', 'result', 'value', 'payload'];
+    for (const key of nestedKeys) {
+      if (record[key] !== undefined) {
+        const nested = unwrapNilDbValue(record[key]);
+        if (nested) {
+          return nested;
+        }
+      }
+    }
+  }
+  return undefined;
+};
+
+const extractDiagnosisFromRecord = (record: Record<string, unknown> | null): string | undefined => {
+  if (!record) {
+    return undefined;
+  }
+  const rootResult = record['result'] as Record<string, unknown> | undefined;
+  const raw = record['raw'] as Record<string, unknown> | undefined;
+  const rawResult = raw?.['result'] as Record<string, unknown> | undefined;
+
+  const candidates = [
+    record['message'],
+    rootResult?.['message'],
+    record['result'],
+    rawResult?.['message'],
+    raw?.['message'],
+  ];
+
+  for (const candidate of candidates) {
+    const value = unwrapNilDbValue(candidate);
+    if (value) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
 
 export const demoLoanResultHandler = async (req: Request, res: Response): Promise<void> => {
   const body = req.body ?? {};
@@ -445,6 +504,74 @@ export const demoDelegationHandler = async (req: Request, res: Response): Promis
     res.json({ token });
   } catch (err) {
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to generate delegation token' });
+  }
+};
+
+export const demoMedicalResultFetchHandler = async (req: Request, res: Response): Promise<void> => {
+  const resultKey = typeof req.query.resultKey === 'string' ? req.query.resultKey : null;
+  if (!resultKey) {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'resultKey is required' });
+    return;
+  }
+
+  const separatorIndex = resultKey.indexOf(':');
+  if (separatorIndex === -1) {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'Invalid resultKey format' });
+    return;
+  }
+
+  const collectionId = resultKey.slice(0, separatorIndex);
+  const key = resultKey.slice(separatorIndex + 1);
+  if (!collectionId || !key) {
+    res.status(HttpStatus.BAD_REQUEST).json({ message: 'Invalid resultKey format' });
+    return;
+  }
+
+  try {
+    const record = await nildbService.getDocument<Record<string, any>>(collectionId, key);
+    if (!record) {
+      res.status(HttpStatus.NOT_FOUND).json({ message: 'Result not found' });
+      return;
+    }
+
+    const attestation = (record as any).attestation
+      ?? (record as any).result?.attestation
+      ?? (record as any).raw?.attestation;
+
+    const signature = (record as any).signature
+      ?? (record as any).result?.signature
+      ?? (record as any).raw?.signature;
+
+    const verifyingKey = (record as any).verifyingKey
+      ?? (record as any).result?.verifyingKey
+      ?? attestation?.verifying_key;
+
+    const diagnosis = extractDiagnosisFromRecord(record as Record<string, unknown>);
+
+    res.json({
+      attestation: attestation ?? null,
+      signature: typeof signature === 'string' ? signature : null,
+      verifyingKey: typeof verifyingKey === 'string' ? verifyingKey : null,
+      key: `${collectionId}:${key}`,
+      diagnosis: diagnosis ?? null,
+    });
+  } catch (err) {
+    logger.error({ err, resultKey }, 'Failed to fetch medical result record');
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to fetch medical result' });
+  }
+};
+
+export const demoMedicalAttestationHandler = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const report = await nilaiService.getAttestationReport();
+    if (!report) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE).json({ message: 'NilAI attestation unavailable' });
+      return;
+    }
+    res.json(report);
+  } catch (err) {
+    logger.error({ err }, 'Failed to retrieve NilAI attestation report');
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Unable to fetch attestation report' });
   }
 };
 

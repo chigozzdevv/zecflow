@@ -39,7 +39,7 @@ class NilDBService {
       const delegationToken = await Builder.delegation()
         .audience(userDidObj)
         .subject(builderDid)
-        .command('/nil/db')
+        .command('/nil/db/data/read')
         .signAndSerialize(signer);
       
       return delegationToken;
@@ -414,10 +414,22 @@ class NilDBService {
     const plaintextFields = ['_id', 'id', 'key', 'type', 'name', 'createdAt', 'updatedAt', 'timestamp'];
 
     for (const [key, value] of Object.entries(data)) {
-      if (plaintextFields.includes(key) || value === null || value === undefined) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (plaintextFields.includes(key)) {
         result[key] = value;
+        continue;
+      } else if (value === null) {
+        result[key] = { '%allot': 'null' };
       } else if (typeof value === 'object' && !Array.isArray(value)) {
-        result[key] = this.encryptAllSensitiveFields(value as Record<string, unknown>);
+        const keys = Object.keys(value as object);
+        if (keys.length === 1 && keys[0] === '%allot') {
+          result[key] = value;
+        } else {
+          result[key] = this.encryptAllSensitiveFields(value as Record<string, unknown>);
+        }
       } else {
         result[key] = { '%allot': typeof value === 'string' ? value : JSON.stringify(value) };
       }

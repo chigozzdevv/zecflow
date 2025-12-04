@@ -932,7 +932,13 @@ export class WorkflowEngine {
     if (blockId === 'state-store') {
       const dataToStore = data.dataPath ? this.getValueFromContext(context, data.dataPath as string) : context.payload;
       const key = data.keyPath ? this.getValueFromContext(context, data.keyPath as string) : 'default';
-      const keyStr = typeof key === 'string' && key.length ? key : 'default';
+      let keyStr = typeof key === 'string' && key.length ? key : 'default';
+
+      const parts = keyStr.split(':');
+      if (parts.length === 2) {
+        keyStr = parts[1];
+      }
+
       const encryptFields = data.encryptFields as string[] | undefined;
       const encryptAll = data.encryptAll as boolean | undefined;
       const hasEncryptFields = Array.isArray(encryptFields) && encryptFields.length > 0;

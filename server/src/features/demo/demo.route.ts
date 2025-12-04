@@ -8,6 +8,8 @@ import {
   demoLoanResultHandler,
   demoDelegationHandler,
   demoRunStatusHandler,
+  demoMedicalResultFetchHandler,
+  demoMedicalAttestationHandler,
 } from './demo.controller';
 
 const router = Router();
@@ -20,5 +22,7 @@ router.get('/medical-workflow', demoMedicalWorkflowHandler);
 router.post('/loan-result', demoLoanResultHandler);
 router.post('/delegation', demoDelegationHandler);
 router.get('/run-status/:runId', demoRunStatusHandler);
+router.get('/medical-result', demoMedicalResultFetchHandler);
+router.get('/medical-attestation', demoMedicalAttestationHandler);
 
 export default router;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { request } from "@/lib/api-client";
+import { request, API_BASE_URL } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useNillionUser } from "@/context/nillion-user-context";
@@ -61,6 +61,24 @@ type MedicalDecision = {
   collectionId?: string;
 };
 
+type MedicalResultDetails = {
+  key: string;
+  signature: string | null;
+  verifyingKey: string | null;
+  attestation: {
+    nonce?: string;
+    verifying_key?: string;
+    cpu_attestation_hash?: string;
+    cpu_attestation_preview?: string;
+    gpu_attestation_hash?: string;
+    gpu_attestation_preview?: string;
+    report_source?: string;
+    report_origin?: string;
+    has_full_report?: boolean;
+  } | null;
+  diagnosis?: string | null;
+};
+
 export function DemoPage() {
   const { did, connect, initializing } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
@@ -91,16 +109,19 @@ export function DemoPage() {
   const [medicalCompletedNodeIds, setMedicalCompletedNodeIds] = useState<string[]>([]);
   const [medicalRunStatus, setMedicalRunStatus] = useState<string | null>(null);
   const medicalPollingRef = useRef<NodeJS.Timeout | null>(null);
+  const [medicalAttestation, setMedicalAttestation] = useState<MedicalResultDetails | null>(null);
+  const [medicalAttestationError, setMedicalAttestationError] = useState<string | null>(null);
+  const [medicalAttestationLoading, setMedicalAttestationLoading] = useState(false);
+  const attestationReportLink = `${API_BASE_URL}/demo/medical-attestation`;
 
   const [loanNodes, setLoanNodes] = useState<DemoWorkflowNode[]>([]);
   const [medicalNodes, setMedicalNodes] = useState<DemoWorkflowNode[]>([]);
   const [loanGraph, setLoanGraph] = useState<WorkflowGraphDefinition | null>(null);
   const [medicalGraph, setMedicalGraph] = useState<WorkflowGraphDefinition | null>(null);
   const [loanCollectionId, setLoanCollectionId] = useState<string | null>(null);
-  const [medicalCollectionId, setMedicalCollectionId] = useState<string | null>(null);
-  const [medicalDelegationToken, setMedicalDelegationToken] = useState<string | null>(null);
-  const [medicalDelegationError, setMedicalDelegationError] = useState<string | null>(null);
-  const [medicalDelegationLoading, setMedicalDelegationLoading] = useState(false);
+  const [medicalDecryptedMessage, setMedicalDecryptedMessage] = useState<string | null>(null);
+  const [medicalDecryptionError, setMedicalDecryptionError] = useState<string | null>(null);
+  const [medicalDecryptionLoading, setMedicalDecryptionLoading] = useState(false);
 
   const fetchLoanWorkflow = async () => {
     try {
@@ -121,11 +142,9 @@ export function DemoPage() {
         const med = await request<MedicalWorkflowResponse>("/demo/medical-workflow");
         setMedicalNodes(med.nodes ?? []);
         setMedicalGraph(med.graph ?? buildGraphFromNodes(med.nodes ?? []));
-        setMedicalCollectionId(med.collectionId ?? null);
       } catch {
         setMedicalNodes([]);
         setMedicalGraph(null);
-        setMedicalCollectionId(null);
       }
     })();
   }, []);
@@ -191,6 +210,44 @@ export function DemoPage() {
     };
   }, [medicalRunId]);
 
+  useEffect(() => {
+    if (!medicalResult?.resultKey || medicalRunStatus !== "succeeded") {
+      if (medicalRunStatus !== "succeeded") {
+        setMedicalAttestationError(null);
+      }
+      setMedicalAttestationLoading(false);
+      if (!medicalResult?.resultKey) {
+        setMedicalAttestation(null);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setMedicalAttestationLoading(true);
+    setMedicalAttestationError(null);
+
+    request<MedicalResultDetails>(`/demo/medical-result?resultKey=${encodeURIComponent(medicalResult.resultKey)}`)
+      .then((data) => {
+        if (!cancelled) {
+          setMedicalAttestation(data);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setMedicalAttestationError(err instanceof Error ? err.message : "Failed to load attestation");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMedicalAttestationLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [medicalResult?.resultKey, medicalRunStatus]);
+
   const handleLoanSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoanError(null);
@@ -246,8 +303,12 @@ export function DemoPage() {
     e.preventDefault();
     setMedicalError(null);
     setMedicalResult(null);
-    setMedicalDelegationToken(null);
-    setMedicalDelegationError(null);
+    setMedicalDecryptedMessage(null);
+    setMedicalDecryptionError(null);
+    setMedicalDecryptionLoading(false);
+    setMedicalAttestation(null);
+    setMedicalAttestationError(null);
+    setMedicalAttestationLoading(false);
     setMedicalLoading(true);
     setMedicalRunId(null);
     setMedicalCompletedNodeIds([]);
@@ -269,7 +330,7 @@ export function DemoPage() {
       });
       setMedicalResult(res);
       if (res.collectionId) {
-        setMedicalCollectionId(res.collectionId);
+        
       }
       if (res.runId) {
         setMedicalRunId(res.runId);
@@ -282,35 +343,35 @@ export function DemoPage() {
     }
   };
 
-  const handleMedicalDelegation = async () => {
-    if (!medicalResult?.resultKey && !medicalResult?.stateKey && !medicalCollectionId) {
-      setMedicalDelegationError("Result key unavailable.");
+  const handleMedicalReveal = async () => {
+    if (!medicalResult?.resultKey) {
+      setMedicalDecryptionError("Result key unavailable.");
       return;
     }
-    if (!did) {
-      setMedicalDelegationError("Connect wallet to request delegation.");
+
+    if (medicalAttestation?.diagnosis) {
+      setMedicalDecryptedMessage(medicalAttestation.diagnosis);
+      setMedicalResult((prev) => (prev ? { ...prev, diagnosis: medicalAttestation.diagnosis ?? undefined } : prev));
       return;
     }
-    const inferredCollectionId = medicalCollectionId
-      ?? medicalResult?.resultKey?.split(":")[0]
-      ?? medicalResult?.stateKey?.split(":")[0]
-      ?? null;
-    if (!inferredCollectionId) {
-      setMedicalDelegationError("Collection not found.");
-      return;
-    }
-    setMedicalDelegationLoading(true);
-    setMedicalDelegationError(null);
+
+    setMedicalDecryptionLoading(true);
+    setMedicalDecryptionError(null);
     try {
-      const res = await request<{ token: string }>("/demo/delegation", {
-        method: "POST",
-        body: JSON.stringify({ userDid: did, collectionId: inferredCollectionId }),
-      });
-      setMedicalDelegationToken(res.token);
-    } catch (err: any) {
-      setMedicalDelegationError(err instanceof Error ? err.message : "Delegation failed");
+      const response = await request<MedicalResultDetails>(
+        `/demo/medical-result?resultKey=${encodeURIComponent(medicalResult.resultKey)}`,
+      );
+      setMedicalAttestation(response);
+      if (response.diagnosis) {
+        setMedicalDecryptedMessage(response.diagnosis);
+        setMedicalResult((prev) => (prev ? { ...prev, diagnosis: response.diagnosis ?? undefined } : prev));
+      } else {
+        throw new Error("Diagnosis not available for this result");
+      }
+    } catch (err) {
+      setMedicalDecryptionError(err instanceof Error ? err.message : "Failed to fetch diagnosis");
     } finally {
-      setMedicalDelegationLoading(false);
+      setMedicalDecryptionLoading(false);
     }
   };
 
@@ -393,27 +454,87 @@ export function DemoPage() {
               {medicalResult.stateKey && !medicalResult.resultKey && (
                 <div className="text-xs text-zinc-500 break-all">State key (NilDB ref): {medicalResult.stateKey}</div>
               )}
+              {medicalAttestationLoading && (
+                <div className="text-xs text-zinc-500">Fetching attestation integrity data…</div>
+              )}
+              {medicalAttestationError && (
+                <p className="text-xs text-red-400">{medicalAttestationError}</p>
+              )}
+              {medicalAttestation?.attestation && (
+                <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/60 p-3 text-xs text-zinc-300 space-y-1">
+                  <div className="font-semibold text-white">NilAI attestation summary</div>
+                  {medicalAttestation.verifyingKey && (
+                    <div className="break-all">
+                      Verifying key: <span className="text-white">{medicalAttestation.verifyingKey}</span>
+                    </div>
+                  )}
+                  {medicalAttestation.attestation.nonce && (
+                    <div className="break-all">Nonce: {medicalAttestation.attestation.nonce}</div>
+                  )}
+                  {medicalAttestation.attestation.cpu_attestation_hash && (
+                    <div className="break-all">
+                      CPU attestation hash: {medicalAttestation.attestation.cpu_attestation_hash}
+                    </div>
+                  )}
+                  {medicalAttestation.attestation.cpu_attestation_preview && (
+                    <div className="break-all text-zinc-500">
+                      CPU preview: {medicalAttestation.attestation.cpu_attestation_preview}
+                    </div>
+                  )}
+                  {medicalAttestation.attestation.gpu_attestation_hash && (
+                    <div className="break-all">
+                      GPU attestation hash: {medicalAttestation.attestation.gpu_attestation_hash}
+                    </div>
+                  )}
+                  {medicalAttestation.attestation.gpu_attestation_preview && (
+                    <div className="break-all text-zinc-500">
+                      GPU preview: {medicalAttestation.attestation.gpu_attestation_preview}
+                    </div>
+                  )}
+                  {medicalAttestation.signature && (
+                    <div className="break-all">
+                      Result signature: {medicalAttestation.signature}
+                    </div>
+                  )}
+                  {medicalAttestation.attestation.has_full_report && (
+                    <div className="pt-1">
+                      <a
+                        href={attestationReportLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#b2a8ff] hover:text-white underline"
+                      >
+                        View raw attestation report (requires auth)
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
               {medicalResult.resultShielded && (
                 <div className="mt-4 space-y-2 text-xs text-zinc-400">
                   <p>
-                    Use your NilDB client with the result key and a delegation token to read the stored diagnosis.
+                    Diagnosis stored privately in NilDB. Connect your wallet to fetch a delegation token and decrypt it locally in your browser.
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleMedicalDelegation}
-                    disabled={medicalDelegationLoading || !did}
-                    className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
-                  >
-                    {did ? (medicalDelegationLoading ? "Requesting token…" : "Get delegation token") : "Connect wallet to request token"}
-                  </button>
-                  {medicalDelegationError && (
-                    <p className="text-red-400 text-xs">{medicalDelegationError}</p>
-                  )}
-                  {medicalDelegationToken && (
-                    <div className="rounded border border-zinc-800 bg-zinc-900/70 p-2 text-[10px] text-white break-all">
-                      Delegation token: {medicalDelegationToken}
+                  {medicalDecryptedMessage && (
+                    <div className="rounded border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-emerald-200">
+                      <div className="text-xs uppercase tracking-wide text-emerald-400">Shielded diagnosis (local)</div>
+                      <div className="text-white text-base font-semibold mt-1 break-words">{medicalDecryptedMessage}</div>
                     </div>
                   )}
+                  {medicalDecryptionLoading && (
+                    <div className="text-xs text-zinc-500">Decrypting shielded diagnosis…</div>
+                  )}
+                  {medicalDecryptionError && (
+                    <p className="text-xs text-red-400">{medicalDecryptionError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleMedicalReveal}
+                    disabled={medicalDecryptionLoading}
+                    className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
+                  >
+                    {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
+                  </button>
                 </div>
               )}
             </div>

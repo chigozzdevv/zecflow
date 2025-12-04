@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { createHash } from 'crypto';
 import { envConfig } from '@/config/env';
 import { logger } from '@/utils/logger';
 
@@ -24,6 +25,7 @@ class NilAIService {
   private attestationCache?: { value: Record<string, unknown>; expiresAt: number };
   private readonly cacheTtlMs = 5 * 60 * 1000;
   private nilaiModulePromise?: Promise<NilaiModule>;
+  private readonly maxInferenceAttempts = 3;
 
   constructor() {
     this.configured = Boolean(envConfig.NILAI_API_KEY && envConfig.NILAI_BASE_URL);
@@ -108,8 +110,25 @@ class NilAIService {
     const attestationUrl = `${trimmedBase}/v1/attestation/report`;
 
     try {
+      const client = await this.ensureClient();
+      let invocationToken: string | undefined;
+      const tokenFactory = (client as Record<string, any>)._getInvocationToken;
+
+      if (typeof tokenFactory === 'function') {
+        try {
+          invocationToken = await tokenFactory.call(client);
+        } catch (tokenErr) {
+          logger.warn({ err: tokenErr }, 'NilAI attestation token generation failed, falling back to API key');
+        }
+      }
+
+      const bearer = invocationToken ?? envConfig.NILAI_API_KEY;
+      if (!bearer) {
+        return undefined;
+      }
+
       const { data } = await axios.get(attestationUrl, {
-        headers: { Authorization: `Bearer ${envConfig.NILAI_API_KEY}` },
+        headers: { Authorization: `Bearer ${bearer}` },
         timeout: 10000,
       });
       this.attestationCache = {
@@ -125,47 +144,63 @@ class NilAIService {
 
   async runInference(prompt: string, model?: NilAIModel): Promise<NilAIResult> {
     const selectedModel = model || this.defaultModel;
-    // Model validation is now flexible - any model string is accepted
-    // The API will return an error if the model is not available
+    let attempt = 0;
+    let lastError: any;
 
-    try {
-      const client = await this.ensureClient();
-      const rawResponse: any = await client.chat.completions.create({
-        model: selectedModel,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 2048,
-        temperature: 0.7,
-      });
+    while (attempt < this.maxInferenceAttempts) {
+      attempt += 1;
+      try {
+        const client = await this.ensureClient();
+        const rawResponse: any = await client.chat.completions.create({
+          model: selectedModel,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 2048,
+          temperature: 0.7,
+        });
 
-      const content = this.normalizeContent(rawResponse?.choices?.[0]?.message?.content);
-      if (!content) {
-        throw new Error('No response content from NilAI');
+        const content = this.normalizeContent(rawResponse?.choices?.[0]?.message?.content);
+        if (!content) {
+          throw new Error('No response content from NilAI');
+        }
+
+        const signature =
+          rawResponse?.signature ??
+          rawResponse?.signed_content ??
+          rawResponse?.metadata?.signature;
+        const verifyingKey =
+          rawResponse?.verifying_key ?? rawResponse?.metadata?.verifying_key;
+        const attestation = await this.fetchAttestation();
+        const sanitizedAttestation = attestation ? this.summarizeAttestation(attestation) : undefined;
+        const sanitizedRaw = this.summarizeRawResponse(rawResponse);
+
+        return {
+          message: content,
+          signature,
+          verifyingKey,
+          attestation: sanitizedAttestation,
+          raw: sanitizedRaw,
+          result: content,
+        };
+      } catch (error: any) {
+        if (error?.response?.status === 401 || error?.response?.status === 403) {
+          throw new Error('NilAI authentication failed. Check your API key.');
+        }
+
+        lastError = error;
+        if (this.isTransientNilaiError(error) && attempt < this.maxInferenceAttempts) {
+          logger.warn({ err: error, attempt }, 'NilAI inference transient failure, retrying');
+          this.resetNilaiClient();
+          await this.delay(attempt * 500);
+          continue;
+        }
+
+        logger.error({ err: error, response: error?.response?.data }, 'NilAI inference failed');
+        throw new Error(`NilAI inference failed: ${error?.message ?? 'unknown error'}`);
       }
-
-      const signature =
-        rawResponse?.signature ??
-        rawResponse?.signed_content ??
-        rawResponse?.metadata?.signature;
-      const verifyingKey =
-        rawResponse?.verifying_key ?? rawResponse?.metadata?.verifying_key;
-      const attestation = await this.fetchAttestation();
-
-      return {
-        message: content,
-        signature,
-        verifyingKey,
-        attestation,
-        raw: rawResponse,
-        result: content,
-      };
-    } catch (error: any) {
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        throw new Error('NilAI authentication failed. Check your API key.');
-      }
-
-      logger.error({ err: error, response: error.response?.data }, 'NilAI inference failed');
-      throw new Error(`NilAI inference failed: ${error.message}`);
     }
+
+    logger.error({ err: lastError }, 'NilAI inference exhausted retries');
+    throw new Error(`NilAI inference failed: ${lastError?.message ?? 'unknown error'}`);
   }
 
   async generateStructured(prompt: string, model?: NilAIModel): Promise<Record<string, any>> {
@@ -200,6 +235,78 @@ class NilAIService {
       logger.error({ err: error }, 'Failed to list NilAI models');
       throw error;
     }
+  }
+
+  private resetNilaiClient(): void {
+    this.client = undefined;
+  }
+
+  private isTransientNilaiError(error: any): boolean {
+    if (!error) {
+      return false;
+    }
+    if (error._tag === 'NilauthUnreachable' || error.name === 'NilauthUnreachable') {
+      return true;
+    }
+    const code = typeof error.code === 'string' ? error.code.toLowerCase() : '';
+    if (code === 'etimedout' || code === 'econntimedout') {
+      return true;
+    }
+    const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+    return message.includes('fetch failed') || message.includes('timeout') || message.includes('network');
+  }
+
+  private async delay(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private summarizeAttestation(attestation: Record<string, unknown>): Record<string, unknown> {
+    const cpu = typeof attestation.cpu_attestation === 'string' ? attestation.cpu_attestation : undefined;
+    const gpu = typeof attestation.gpu_attestation === 'string' ? attestation.gpu_attestation : undefined;
+    const hash = (value: string | undefined) => (value ? createHash('sha256').update(value).digest('hex') : undefined);
+
+    let reportOrigin: string | undefined;
+    if (envConfig.NILAI_BASE_URL) {
+      const trimmed = envConfig.NILAI_BASE_URL.replace(/\/+$/, '');
+      if (/\/v1$/i.test(trimmed)) {
+        reportOrigin = `${trimmed}/attestation/report`;
+      } else {
+        reportOrigin = `${trimmed}/v1/attestation/report`;
+      }
+    }
+
+    return {
+      nonce: typeof attestation.nonce === 'string' ? attestation.nonce : undefined,
+      verifying_key: typeof attestation.verifying_key === 'string' ? attestation.verifying_key : undefined,
+      cpu_attestation_hash: hash(cpu),
+      cpu_attestation_preview: cpu?.slice(0, 96),
+      gpu_attestation_hash: hash(gpu),
+      gpu_attestation_preview: gpu?.slice(0, 96),
+      has_full_report: Boolean(cpu || gpu),
+      report_source: '/api/demo/medical-attestation',
+      report_origin: reportOrigin,
+    };
+  }
+
+  private summarizeRawResponse(raw: any): Record<string, unknown> | undefined {
+    if (!raw || typeof raw !== 'object') {
+      return undefined;
+    }
+
+    const firstChoice = Array.isArray(raw.choices) ? raw.choices[0] : undefined;
+    return {
+      id: raw.id,
+      model: raw.model,
+      created: raw.created,
+      usage: raw.usage,
+      finish_reason: firstChoice?.finish_reason,
+      service_tier: raw.service_tier,
+      signed: Boolean(raw.signature ?? raw.signed_content ?? raw.metadata?.signature),
+    };
+  }
+
+  public async getAttestationReport(): Promise<Record<string, unknown> | undefined> {
+    return this.fetchAttestation();
   }
 }
 
