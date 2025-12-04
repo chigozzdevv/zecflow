@@ -249,12 +249,14 @@ function GraphCanvas({ nodes, edges, accentColor, height, fullScreen }: GraphCan
           edges={edges}
           nodeTypes={nodeTypes}
           fitView
+          fitViewOptions={{ padding: 0.2 }}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
-          panOnScroll
+          panOnScroll={false}
           zoomOnScroll
           zoomOnPinch
+          zoomOnDoubleClick
           proOptions={{ hideAttribution: true }}
           className="rounded-2xl"
         >
@@ -281,7 +283,10 @@ function buildNodes(
     const label = node.alias || (typeof node.data?.label === 'string' ? node.data.label : node.blockId) || node.type || `Node ${idx + 1}`;
     const isCompleted = completedSet.has(id);
     const status: "completed" | "pending" | "idle" = isCompleted ? "completed" : running ? "pending" : "idle";
-    const position = node.position ?? { x: (idx % 3) * 220, y: Math.floor(idx / 3) * 140 };
+    const position = node.position ?? {
+      x: 120 + (idx % 4) * 220,
+      y: 80 + Math.floor(idx / 4) * 140,
+    };
 
     return {
       id,

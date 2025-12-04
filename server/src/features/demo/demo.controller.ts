@@ -63,6 +63,8 @@ const computeGridPosition = (index: number) => ({
   y: GRID_Y_START + Math.floor(index / GRID_COLUMNS) * GRID_Y_STEP,
 });
 
+const MIN_SPREAD_PX = 140;
+
 const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | null => {
   if (!graph || !Array.isArray(graph.nodes) || !graph.nodes.length) {
     return graph;
@@ -88,7 +90,7 @@ const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | n
 
   const spreadX = maxX - minX;
   const spreadY = maxY - minY;
-  if (!needsFallback && (spreadX >= 10 || spreadY >= 10)) {
+  if (!needsFallback && (spreadX >= MIN_SPREAD_PX || spreadY >= MIN_SPREAD_PX)) {
     return graph;
   }
 
@@ -263,10 +265,12 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
     }
 
     let collectionId: string | null = null;
+    let schema: Record<string, unknown> | undefined;
     if (workflow.dataset) {
       const ds = await DatasetModel.findById(workflow.dataset).lean();
       if (ds && typeof ds.nildbCollectionId === 'string') {
         collectionId = ds.nildbCollectionId;
+        schema = ds.schema;
       }
     }
 
@@ -275,9 +279,34 @@ export const demoMedicalHandler = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const stateKey = await nildbService.storeState(collectionId, {
-      data: { symptoms, age },
-    }, { encryptAll: true });
+    const numericAge = Number(age);
+    if (typeof symptoms !== 'string' || !symptoms.trim() || Number.isNaN(numericAge)) {
+      res.status(HttpStatus.BAD_REQUEST).json({ message: 'Invalid payload' });
+      return;
+    }
+
+    let stateKey: string;
+    try {
+      const { v4: uuidv4 } = await import('uuid');
+      const docKey = uuidv4();
+      
+      await nildbService.putDocument(
+        collectionId,
+        docKey,
+        {
+          symptoms: symptoms.trim(),
+          age: numericAge,
+          source: 'demo-medical',
+        },
+        schema,
+        { encryptAll: true },
+      );
+      stateKey = `${collectionId}:${docKey}`;
+    } catch (err) {
+      logger.error({ err }, 'Failed to store medical payload');
+      res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ message: 'Failed to store encrypted medical data' });
+      return;
+    }
 
     let diagnosis = 'Further evaluation required';
     if (typeof symptoms === 'string') {

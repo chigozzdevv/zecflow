@@ -236,6 +236,58 @@ class NilDBService {
     }
   }
 
+  async createCollectionWithSchema(
+    collectionId: string,
+    name: string,
+    schema: Record<string, unknown>,
+  ): Promise<boolean> {
+    const builder = await this.getBuilder();
+
+    try {
+      const collections = await builder.readCollections();
+      const exists = collections?.data?.some((c: any) => c.id === collectionId || c._id === collectionId);
+
+      if (exists) {
+        logger.info({ collectionId }, 'Collection already exists, cannot recreate');
+        return false;
+      }
+
+      const collection = {
+        _id: collectionId,
+        type: 'standard',
+        name,
+        schema,
+      };
+
+      logger.info({ collectionId, schema: JSON.stringify(schema, null, 2) }, 'Creating collection with schema');
+      await builder.createCollection(collection);
+      logger.info({ collectionId }, 'NilDB collection created with schema');
+      return true;
+    } catch (error) {
+      logger.error({ err: error, collectionId }, 'Failed to create collection with schema');
+      throw error;
+    }
+  }
+
+  async getCollectionSchema(collectionId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const builder = await this.getBuilder();
+      const collections = await builder.readCollections();
+      const collection = collections?.data?.find((c: any) => c.id === collectionId || c._id === collectionId);
+      if (collection) {
+        logger.info({
+          collectionId,
+          collectionData: JSON.stringify(collection, null, 2),
+        }, 'NilDB collection schema retrieved');
+        return collection.schema ?? collection;
+      }
+      return null;
+    } catch (error) {
+      logger.error({ err: error, collectionId }, 'Failed to get collection schema');
+      return null;
+    }
+  }
+
   async putDocument(
     collectionId: string,
     key: string,
@@ -245,12 +297,28 @@ class NilDBService {
   ): Promise<{ key: string; collectionId: string }> {
     const builder = await this.getBuilder();
 
+    logger.info({
+      collectionId,
+      key,
+      inputData: JSON.stringify(data, null, 2),
+      options,
+    }, 'NilDB putDocument called - INPUT DATA');
+
+    await this.getCollectionSchema(collectionId);
+
     if (schema) {
       await this.ensureCollection(collectionId, schema);
     }
 
     const encryptedData = this.prepareEncryptedData(data, options);
     const record = { _id: key, ...encryptedData };
+
+    logger.info({
+      collectionId,
+      key,
+      encryptedData: JSON.stringify(encryptedData, null, 2),
+      finalRecord: JSON.stringify(record, null, 2),
+    }, 'NilDB putDocument - ENCRYPTED DATA & FINAL RECORD');
 
     try {
       const existing = await builder.findData({ collection: collectionId, filter: { _id: key } });
@@ -263,6 +331,10 @@ class NilDBService {
         });
         logger.info({ collectionId, key }, 'NilDB document updated');
       } else {
+        logger.info({
+          collectionId,
+          payloadToCreate: JSON.stringify({ collection: collectionId, data: [record] }, null, 2),
+        }, 'NilDB createStandardData - PAYLOAD BEING SENT');
         await builder.createStandardData({ collection: collectionId, data: [record] });
         logger.info({ collectionId, key }, 'NilDB document created');
       }
@@ -270,6 +342,43 @@ class NilDBService {
       return { key, collectionId };
     } catch (error) {
       logger.error({ err: error, collectionId, key }, 'NilDB putDocument failed');
+      throw error;
+    }
+  }
+
+  async putDocumentRaw(
+    collectionId: string,
+    key: string,
+    data: Record<string, unknown>,
+  ): Promise<{ key: string; collectionId: string }> {
+    const builder = await this.getRawBuilder();
+    const record = { _id: key, ...data };
+
+    logger.info({
+      collectionId,
+      key,
+      data: JSON.stringify(data, null, 2),
+      record: JSON.stringify(record, null, 2),
+    }, 'NilDB putDocumentRaw - STORING WITHOUT ENCRYPTION');
+
+    try {
+      const existing = await builder.findData({ collection: collectionId, filter: { _id: key } });
+
+      if (existing?.data?.length) {
+        await builder.updateData({
+          collection: collectionId,
+          filter: { _id: key },
+          update: { $set: data },
+        });
+        logger.info({ collectionId, key }, 'NilDB document updated (raw)');
+      } else {
+        await builder.createStandardData({ collection: collectionId, data: [record] });
+        logger.info({ collectionId, key }, 'NilDB document created (raw)');
+      }
+
+      return { key, collectionId };
+    } catch (error) {
+      logger.error({ err: error, collectionId, key }, 'NilDB putDocumentRaw failed');
       throw error;
     }
   }
@@ -346,7 +455,13 @@ class NilDBService {
     payload: Record<string, unknown>,
     options?: { encryptFields?: string[]; encryptAll?: boolean },
   ): Promise<string> {
-    const key = typeof payload.key === 'string' && payload.key.length ? payload.key : 'default';
+    let key = typeof payload.key === 'string' && payload.key.length ? payload.key : undefined;
+    
+    if (!key) {
+      const { v4: uuidv4 } = await import('uuid');
+      key = uuidv4();
+    }
+    
     const payloadData = payload.data as Record<string, unknown> | undefined;
     const data = payloadData ?? payload;
     await this.putDocument(collectionId, key, data, undefined, options);
