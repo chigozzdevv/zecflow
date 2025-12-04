@@ -426,9 +426,10 @@ export function DemoPage() {
             </div>
             <button
               type="submit"
-              className="px-4 py-2 rounded bg-[#6758c1] hover:bg-[#5344ad] text-sm font-medium"
+              disabled={medicalLoading}
+              className="px-4 py-2 rounded bg-[#6758c1] hover:bg-[#5344ad] text-sm font-medium disabled:opacity-60"
             >
-              Run Medical Demo
+              {medicalLoading ? "Running…" : "Run Medical Demo"}
             </button>
           </form>
           {medicalError && <p className="text-sm text-red-400 mt-3">{medicalError}</p>}
@@ -512,12 +513,10 @@ export function DemoPage() {
               )}
               {medicalResult.resultShielded && (
                 <div className="mt-4 space-y-2 text-xs text-zinc-400">
-                  <p>
-                    Diagnosis stored privately in NilDB. Connect your wallet to fetch a delegation token and decrypt it locally in your browser.
-                  </p>
+                  <p>Diagnosis stored privately in NilDB. Click below to reveal it once the run completes.</p>
                   {medicalDecryptedMessage && (
                     <div className="rounded border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-emerald-200">
-                      <div className="text-xs uppercase tracking-wide text-emerald-400">Shielded diagnosis (local)</div>
+                      <div className="text-xs uppercase tracking-wide text-emerald-400">Shielded diagnosis</div>
                       <div className="text-white text-base font-semibold mt-1 break-words">{medicalDecryptedMessage}</div>
                     </div>
                   )}
