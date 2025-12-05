@@ -421,17 +421,33 @@ class NilDBService {
       if (plaintextFields.includes(key)) {
         result[key] = value;
         continue;
-      } else if (value === null) {
+      }
+
+      if (value === null) {
         result[key] = { '%allot': 'null' };
-      } else if (typeof value === 'object' && !Array.isArray(value)) {
-        const keys = Object.keys(value as object);
+        continue;
+      }
+
+      if (typeof value === 'object') {
+        if (Array.isArray(value)) {
+          result[key] = { '%allot': JSON.stringify(value) };
+          continue;
+        }
+
+        const objValue = value as Record<string, unknown>;
+        const keys = Object.keys(objValue);
         if (keys.length === 1 && keys[0] === '%allot') {
           result[key] = value;
         } else {
-          result[key] = this.encryptAllSensitiveFields(value as Record<string, unknown>);
+          result[key] = { '%allot': JSON.stringify(objValue) };
         }
+        continue;
+      }
+
+      if (typeof value === 'string') {
+        result[key] = { '%allot': value };
       } else {
-        result[key] = { '%allot': typeof value === 'string' ? value : JSON.stringify(value) };
+        result[key] = { '%allot': JSON.stringify(value) };
       }
     }
     return result;
