@@ -308,6 +308,14 @@ class NilAIService {
   public async getAttestationReport(): Promise<Record<string, unknown> | undefined> {
     return this.fetchAttestation();
   }
+
+  public async getAttestationSummary(): Promise<Record<string, unknown> | undefined> {
+    const report = await this.fetchAttestation();
+    if (!report) {
+      return undefined;
+    }
+    return this.summarizeAttestation(report);
+  }
 }
 
 export const nilaiService = new NilAIService();

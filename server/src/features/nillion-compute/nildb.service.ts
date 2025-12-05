@@ -289,76 +289,50 @@ class NilDBService {
   }
 
   private sanitizeComplexFields(data: Record<string, unknown>): Record<string, unknown> {
-    const sanitized: Record<string, unknown> = { ...data };
+    const sanitized: Record<string, unknown> = {};
 
-    const flattenSubset = (
-      target: Record<string, unknown>,
-      prefix: string,
-      source: Record<string, unknown>,
-      keys: string[],
-    ) => {
-      for (const key of keys) {
-        const value = source[key];
-        if (value === undefined || value === null) {
-          continue;
-        }
-        const safeKey = `${prefix}_${key}`;
-        target[safeKey] = value;
+    const coerceString = (value: unknown): string | undefined => {
+      if (value === null || value === undefined) {
+        return undefined;
       }
+      if (typeof value === 'string') {
+        return value;
+      }
+      if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value);
+      }
+      return undefined;
     };
 
-    if (sanitized.result && typeof sanitized.result === 'object' && !Array.isArray(sanitized.result)) {
-      const resultObj = sanitized.result as Record<string, unknown>;
-      if (typeof sanitized.message !== 'string' && typeof resultObj.message === 'string') {
-        sanitized.message = resultObj.message;
+    const resultObj = (data.result as Record<string, unknown> | undefined) ?? undefined;
+    const rawObj = (data.raw as Record<string, unknown> | undefined) ?? undefined;
+
+    const messageSources = [data.message, resultObj?.['message'], rawObj?.['message']];
+
+    for (const candidate of messageSources) {
+      const value = coerceString(candidate);
+      if (value) {
+        sanitized.message = value;
+        break;
       }
-      if (typeof sanitized.signature !== 'string' && typeof resultObj.signature === 'string') {
-        sanitized.signature = resultObj.signature;
-      }
-      flattenSubset(sanitized, 'result', resultObj, ['model', 'finish_reason']);
-      sanitized.result = undefined;
-      delete sanitized.result;
     }
 
-    if (sanitized.raw && typeof sanitized.raw === 'object' && !Array.isArray(sanitized.raw)) {
-      const rawObj = sanitized.raw as Record<string, unknown>;
-      flattenSubset(sanitized, 'raw', rawObj, ['id', 'model', 'finish_reason', 'service_tier']);
-      if (rawObj.created !== undefined) {
-        sanitized.raw_created = rawObj.created;
+    const signatureSources = [data.signature, resultObj?.['signature'], rawObj?.['signature']];
+
+    for (const candidate of signatureSources) {
+      const value = coerceString(candidate);
+      if (value) {
+        sanitized.signature = value;
+        break;
       }
-      if (rawObj.signed !== undefined) {
-        sanitized.raw_signed = rawObj.signed;
-      }
-      const usage = rawObj.usage as Record<string, unknown> | undefined;
-      if (usage && typeof usage === 'object') {
-        const usageKeys = ['total_tokens', 'prompt_tokens', 'completion_tokens'];
-        for (const key of usageKeys) {
-          if (usage[key] !== undefined) {
-            sanitized[`raw_usage_${key}`] = usage[key];
-          }
-        }
-      }
-      sanitized.raw = undefined;
-      delete sanitized.raw;
     }
 
-    if (sanitized.attestation && typeof sanitized.attestation === 'object' && !Array.isArray(sanitized.attestation)) {
-      const attObj = sanitized.attestation as Record<string, unknown>;
-      flattenSubset(sanitized, 'attestation', attObj, [
-        'nonce',
-        'verifying_key',
-        'cpu_attestation_hash',
-        'cpu_attestation_preview',
-        'gpu_attestation_hash',
-        'gpu_attestation_preview',
-        'report_source',
-        'report_origin',
-      ]);
-      if (attObj.has_full_report !== undefined) {
-        sanitized.attestation_has_full_report = attObj.has_full_report;
-      }
-      sanitized.attestation = undefined;
-      delete sanitized.attestation;
+    if (!sanitized.message && typeof data.result === 'string') {
+      sanitized.message = data.result;
+    }
+
+    if (Object.keys(sanitized).length === 0) {
+      return data;
     }
 
     return sanitized;
