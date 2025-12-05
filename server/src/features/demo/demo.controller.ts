@@ -45,6 +45,36 @@ const unwrapNilDbValue = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const buildAttestationFromFlatFields = (record: Record<string, unknown>): Record<string, string> | undefined => {
+  const get = (key: string) => unwrapNilDbValue(record[key]);
+  const nonce = get('attestation_nonce');
+  const verifyingKey = get('attestation_verifying_key');
+  const cpuHash = get('attestation_cpu_attestation_hash');
+  const cpuPreview = get('attestation_cpu_attestation_preview');
+  const gpuHash = get('attestation_gpu_attestation_hash');
+  const gpuPreview = get('attestation_gpu_attestation_preview');
+  const reportSource = get('attestation_report_source');
+  const reportOrigin = get('attestation_report_origin');
+  const hasFullReport = get('attestation_has_full_report');
+
+  if (!nonce && !verifyingKey && !cpuHash && !gpuHash && !reportSource && !reportOrigin) {
+    return undefined;
+  }
+
+  const attestation: Record<string, string> = {};
+  if (nonce) attestation.nonce = nonce;
+  if (verifyingKey) attestation.verifying_key = verifyingKey;
+  if (cpuHash) attestation.cpu_attestation_hash = cpuHash;
+  if (cpuPreview) attestation.cpu_attestation_preview = cpuPreview;
+  if (gpuHash) attestation.gpu_attestation_hash = gpuHash;
+  if (gpuPreview) attestation.gpu_attestation_preview = gpuPreview;
+  if (reportSource) attestation.report_source = reportSource;
+  if (reportOrigin) attestation.report_origin = reportOrigin;
+  if (hasFullReport) attestation.has_full_report = hasFullReport;
+
+  return attestation;
+};
+
 const extractDiagnosisFromRecord = (record: Record<string, unknown> | null): string | undefined => {
   if (!record) {
     return undefined;
@@ -534,9 +564,11 @@ export const demoMedicalResultFetchHandler = async (req: Request, res: Response)
       return;
     }
 
-    const attestation = (record as any).attestation
+    const attestation =
+      (record as any).attestation
       ?? (record as any).result?.attestation
-      ?? (record as any).raw?.attestation;
+      ?? (record as any).raw?.attestation
+      ?? buildAttestationFromFlatFields(record as Record<string, unknown>);
 
     const signature = (record as any).signature
       ?? (record as any).result?.signature
