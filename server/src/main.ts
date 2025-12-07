@@ -39,7 +39,7 @@ const start = async (): Promise<void> => {
         const req = client.get(keepAliveUrl, (res) => {
           res.on('data', () => {});
           res.on('end', () => {
-            logger.debug({ status: res.statusCode, elapsedMs: Date.now() - requestStart }, 'Keep-alive ping succeeded');
+            logger.info({ status: res.statusCode, elapsedMs: Date.now() - requestStart }, 'Keep-alive ping succeeded');
           });
         });
 
