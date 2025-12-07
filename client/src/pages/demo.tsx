@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { request, API_BASE_URL } from "@/lib/api-client";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { useNillionUser } from "@/context/nillion-user-context";
 import { WorkflowGraphPreview } from "@/components/demo/workflow-graph-preview";
 import type {
   WorkflowGraphDefinition,
@@ -80,7 +79,6 @@ type MedicalResultDetails = {
 };
 
 export function DemoPage() {
-  const { did, connect, initializing } = useNillionUser();
   const [loanForm, setLoanForm] = useState({
     fullName: "",
     income: "",
@@ -280,7 +278,6 @@ export function DemoPage() {
         age,
         country: loanForm.country.trim(),
         requestedAmount,
-        userDid: did ?? undefined,
       };
 
       const res = await request<LoanSubmissionResponse>("/demo/loan-app", {
@@ -559,17 +556,6 @@ export function DemoPage() {
           <p className="text-sm text-zinc-400 mb-6">
             Submit a sample loan application processed by a NilCC workload over encrypted inputs, with a NilAI block explaining the outcome for automation signals.
           </p>
-          <div className="mb-4 text-xs text-zinc-300 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => connect().catch((err) => console.error(err))}
-              disabled={initializing}
-              className="px-3 py-1.5 rounded border border-[#6758c1] bg-[#6758c1]/10 hover:bg-[#6758c1]/20 disabled:opacity-60"
-            >
-              {did ? "Wallet connected to Nillion" : initializing ? "Connecting…" : "Connect wallet to Nillion"}
-            </button>
-            {did && <span className="text-[11px] text-zinc-500 truncate">DID: {did}</span>}
-          </div>
           <form onSubmit={handleLoanSubmit} className="space-y-4 max-w-xl">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input

@@ -134,6 +134,7 @@ const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | n
   let minY = Number.POSITIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
   let needsFallback = false;
+  const uniquePositions = new Set<string>();
 
   for (const node of graph.nodes) {
     const pos = node.position;
@@ -145,11 +146,13 @@ const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | n
     maxX = Math.max(maxX, pos.x);
     minY = Math.min(minY, pos.y);
     maxY = Math.max(maxY, pos.y);
+    uniquePositions.add(`${pos.x}:${pos.y}`);
   }
 
   const spreadX = maxX - minX;
   const spreadY = maxY - minY;
-  if (!needsFallback && (spreadX >= MIN_SPREAD_PX || spreadY >= MIN_SPREAD_PX)) {
+  const tooClustered = uniquePositions.size <= Math.max(2, Math.ceil(graph.nodes.length / 3));
+  if (!needsFallback && !tooClustered && (spreadX >= MIN_SPREAD_PX || spreadY >= MIN_SPREAD_PX)) {
     return graph;
   }
 
