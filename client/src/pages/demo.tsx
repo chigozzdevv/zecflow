@@ -597,9 +597,10 @@ export function DemoPage() {
             </div>
             <button
               type="submit"
-              className="px-4 py-2 rounded bg-[#6758c1] hover:bg-[#5344ad] text-sm font-medium"
+              disabled={loanLoading}
+              className="px-4 py-2 rounded bg-[#6758c1] hover:bg-[#5344ad] text-sm font-medium disabled:opacity-60"
             >
-              Run Loan Demo
+              {loanLoading ? "Running…" : "Run Loan Demo"}
             </button>
             <p className="text-[11px] text-zinc-500">
               *Demo will fail if no NilCC metal instance is active on the testnet environment.
