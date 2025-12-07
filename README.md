@@ -2,7 +2,9 @@
 
 ZecFlow is a privacy-preserving automation platform for building workflows that combine Zcash shielded transactions with Nillion blind compute. Data stays encrypted from input to output—the platform orchestrates execution without accessing the underlying values and provides cryptographic attestations after each run to prove correct execution.
 
-We built two demo workflows using ZecFlow: a private medical diagnosis system and a confidential loan evaluation pipeline. Both use Nillion blind compute blocks to process sensitive data without exposing it. Try them here: **https://zecflow.vercel.app/demo**
+We built two demo workflows using ZecFlow: a private medical diagnosis system and a confidential loan evaluation pipeline. Both use Nillion blind compute blocks to process sensitive data without exposing it.
+
+Try them here: **https://zecflow.vercel.app/demo**
 
 ## Table of Contents
 
