@@ -33,6 +33,10 @@ app.use(
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+app.get('/health', (_req, res: express.Response) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.use('/api', routes);
 
 app.use((_req, res, next) => {
