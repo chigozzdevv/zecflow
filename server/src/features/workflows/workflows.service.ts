@@ -11,6 +11,58 @@ import { Types } from 'mongoose';
 
 type ResolvedDependency = { source: string; targetHandle?: string; sourceHandle?: string };
 
+const GRID_COLUMNS = 4;
+const GRID_X_START = 120;
+const GRID_Y_START = 80;
+const GRID_X_STEP = 220;
+const GRID_Y_STEP = 140;
+const MIN_SPREAD_PX = 140;
+
+const computeGridPosition = (index: number) => ({
+  x: GRID_X_START + (index % GRID_COLUMNS) * GRID_X_STEP,
+  y: GRID_Y_START + Math.floor(index / GRID_COLUMNS) * GRID_Y_STEP,
+});
+
+export const normalizeGraphPositions = (graph: WorkflowGraph | null): WorkflowGraph | null => {
+  if (!graph || !Array.isArray(graph.nodes) || !graph.nodes.length) {
+    return graph;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let needsFallback = false;
+  const uniquePositions = new Set<string>();
+
+  for (const node of graph.nodes) {
+    const pos = node.position;
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+      needsFallback = true;
+      break;
+    }
+    minX = Math.min(minX, pos.x);
+    maxX = Math.max(maxX, pos.x);
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y);
+    uniquePositions.add(`${pos.x}:${pos.y}`);
+  }
+
+  const spreadX = maxX - minX;
+  const spreadY = maxY - minY;
+  const tooClustered = uniquePositions.size <= Math.max(2, Math.ceil(graph.nodes.length / 3));
+  if (!needsFallback && !tooClustered && (spreadX >= MIN_SPREAD_PX || spreadY >= MIN_SPREAD_PX)) {
+    return graph;
+  }
+
+  const adjustedNodes = graph.nodes.map((node, idx) => ({
+    ...node,
+    position: computeGridPosition(idx),
+  }));
+
+  return { ...graph, nodes: adjustedNodes };
+};
+
 interface CreateWorkflowInput {
   name: string;
   description?: string;
@@ -150,7 +202,10 @@ export const setWorkflowStatus = async (
   if (status === 'published') {
     workflow.status = status;
 
-    const graph = await buildGraphFromBlocks(workflowId);
+    const graph = normalizeGraphPositions(await buildGraphFromBlocks(workflowId));
+    if (!graph) {
+      throw new AppError('Workflow graph missing nodes', HttpStatus.BAD_REQUEST);
+    }
     workflow.graph = {
       ...graph,
       metadata: {

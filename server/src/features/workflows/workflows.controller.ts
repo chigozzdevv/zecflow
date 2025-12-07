@@ -8,7 +8,7 @@ import { ConnectorModel } from '@/features/connectors/connectors.model';
 import { decryptConnectorConfig } from '@/features/connectors/connectors.security';
 import { nildbService } from '@/features/nillion-compute/nildb.service';
 import { RunModel } from '@/features/runs/runs.model';
-import { createWorkflow, listWorkflows, setWorkflowStatus, deleteWorkflow } from './workflows.service';
+import { createWorkflow, listWorkflows, setWorkflowStatus, deleteWorkflow, normalizeGraphPositions } from './workflows.service';
 import { WorkflowModel } from './workflows.model';
 import { logger } from '@/utils/logger';
 
@@ -223,7 +223,7 @@ export const getWorkflowGraphHandler = async (req: AuthenticatedRequest, res: Re
     return;
   }
 
-  const graph = workflow.graph;
+  const graph = normalizeGraphPositions(workflow.graph as any);
   if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) {
     res.status(HttpStatus.BAD_REQUEST).json({ message: 'Workflow has no graph definition yet' });
     return;
@@ -303,7 +303,7 @@ export const getWorkflowTraceHandler = async (req: AuthenticatedRequest, res: Re
   const result = (run.result ?? {}) as Record<string, unknown>;
   const steps = Array.isArray((result as any).steps) ? ((result as any).steps as unknown[]) : [];
   const outputs = (result as any).outputs ?? {};
-  const graph = workflow.graph;
+  const graph = normalizeGraphPositions(workflow.graph as any);
 
   if (!graph || !Array.isArray(graph.nodes) || graph.nodes.length === 0) {
     res.status(HttpStatus.BAD_REQUEST).json({ message: 'Workflow has no graph definition yet' });
