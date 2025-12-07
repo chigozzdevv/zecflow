@@ -289,80 +289,84 @@ class NilDBService {
   }
 
   private sanitizeComplexFields(data: Record<string, unknown>): Record<string, unknown> {
-    const sanitized: Record<string, unknown> = { ...data };
+    const sanitized: Record<string, unknown> = {};
+    const dropKeys = new Set([
+      'attestation',
+      'raw',
+      'result',
+      'metadata',
+      'signed_content',
+      'response',
+    ]);
 
-    const flattenSubset = (
-      target: Record<string, unknown>,
-      prefix: string,
-      source: Record<string, unknown>,
-      keys: string[],
-    ) => {
-      for (const key of keys) {
-        const value = source[key];
-        if (value === undefined || value === null) {
-          continue;
-        }
-        const safeKey = `${prefix}_${key}`;
-        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-          target[safeKey] = value;
-        } else {
-          target[safeKey] = JSON.stringify(value);
-        }
-      }
+    const shouldDropKey = (key: string): boolean => {
+      if (dropKeys.has(key)) return true;
+      return key.startsWith('attestation_') || key.startsWith('raw_') || key.startsWith('result_');
     };
 
-    if (sanitized.result && typeof sanitized.result === 'object' && !Array.isArray(sanitized.result)) {
-      const resultObj = sanitized.result as Record<string, unknown>;
-      if (typeof sanitized.message !== 'string' && typeof resultObj.message === 'string') {
-        sanitized.message = resultObj.message;
+    for (const [key, value] of Object.entries(data)) {
+      if (shouldDropKey(key)) {
+        continue;
       }
-      if (typeof sanitized.signature !== 'string' && typeof resultObj.signature === 'string') {
-        sanitized.signature = resultObj.signature;
-      }
-      flattenSubset(sanitized, 'result', resultObj, ['model', 'finish_reason']);
-      sanitized.result = undefined;
-      delete sanitized.result;
+      sanitized[key] = value;
     }
 
-    if (sanitized.raw && typeof sanitized.raw === 'object' && !Array.isArray(sanitized.raw)) {
-      const rawObj = sanitized.raw as Record<string, unknown>;
-      flattenSubset(sanitized, 'raw', rawObj, ['id', 'model', 'finish_reason', 'service_tier']);
-      if (rawObj.created !== undefined) {
-        sanitized.raw_created = rawObj.created;
-      }
-      if (rawObj.signed !== undefined) {
-        sanitized.raw_signed = rawObj.signed;
-      }
-      const usage = rawObj.usage as Record<string, unknown> | undefined;
-      if (usage && typeof usage === 'object') {
-        const usageKeys = ['total_tokens', 'prompt_tokens', 'completion_tokens'];
-        for (const key of usageKeys) {
-          if (usage[key] !== undefined) {
-            sanitized[`raw_usage_${key}`] = usage[key];
-          }
+    const resultObj = typeof data.result === 'object' && data.result && !Array.isArray(data.result)
+      ? (data.result as Record<string, unknown>)
+      : undefined;
+    const rawObj = typeof data.raw === 'object' && data.raw && !Array.isArray(data.raw)
+      ? (data.raw as Record<string, unknown>)
+      : undefined;
+
+    const coerceString = (value: unknown): string | undefined => {
+      if (value === null || value === undefined) return undefined;
+      if (typeof value === 'string') return value;
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      return undefined;
+    };
+
+    if (typeof sanitized.message !== 'string') {
+      const messageSources = [data.message, resultObj?.message, rawObj?.message, typeof data.result === 'string' ? data.result : undefined];
+      for (const candidate of messageSources) {
+        const value = coerceString(candidate);
+        if (value) {
+          sanitized.message = value;
+          break;
         }
       }
-      sanitized.raw = undefined;
-      delete sanitized.raw;
     }
 
-    if (sanitized.attestation && typeof sanitized.attestation === 'object' && !Array.isArray(sanitized.attestation)) {
-      const attObj = sanitized.attestation as Record<string, unknown>;
-      flattenSubset(sanitized, 'attestation', attObj, [
-        'nonce',
-        'verifying_key',
-        'cpu_attestation_hash',
-        'cpu_attestation_preview',
-        'gpu_attestation_hash',
-        'gpu_attestation_preview',
-        'report_source',
-        'report_origin',
-      ]);
-      if (attObj.has_full_report !== undefined) {
-        sanitized.attestation_has_full_report = attObj.has_full_report;
+    if (typeof sanitized.signature !== 'string') {
+      const signatureSources = [data.signature, resultObj?.signature, rawObj?.signature];
+      for (const candidate of signatureSources) {
+        const value = coerceString(candidate);
+        if (value) {
+          sanitized.signature = value;
+          break;
+        }
       }
-      sanitized.attestation = undefined;
-      delete sanitized.attestation;
+    }
+
+    if (typeof sanitized.verifyingKey !== 'string') {
+      const verifyingSources = [
+        (data as Record<string, unknown>).verifyingKey,
+        (data as Record<string, unknown>).verifying_key,
+        resultObj?.verifyingKey,
+        resultObj?.verifying_key,
+        rawObj?.verifyingKey,
+        rawObj?.verifying_key,
+      ];
+      for (const candidate of verifyingSources) {
+        const value = coerceString(candidate);
+        if (value) {
+          sanitized.verifyingKey = value;
+          break;
+        }
+      }
+    }
+
+    if (!Object.keys(sanitized).length) {
+      return { message: JSON.stringify(data) };
     }
 
     return sanitized;
