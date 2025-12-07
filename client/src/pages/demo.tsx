@@ -523,14 +523,36 @@ export function DemoPage() {
                   {medicalDecryptionError && (
                     <p className="text-xs text-red-400">{medicalDecryptionError}</p>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleMedicalReveal}
-                    disabled={medicalDecryptionLoading}
-                    className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
-                  >
-                    {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
-                  </button>
+              {!medicalDecryptedMessage && !medicalAttestation?.diagnosis && (
+                <button
+                  type="button"
+                  onClick={handleMedicalReveal}
+                  disabled={medicalDecryptionLoading}
+                  className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
+                >
+                  {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
+                </button>
+              )}
+                  {(medicalRunStatus === "succeeded" || medicalDecryptedMessage || medicalAttestation?.diagnosis) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMedicalResult(null);
+                        setMedicalForm({ symptoms: "", age: "", shieldResult: true });
+                        setMedicalRunId(null);
+                        setMedicalRunStatus(null);
+                        setMedicalCompletedNodeIds([]);
+                        setMedicalDecryptedMessage(null);
+                        setMedicalDecryptionError(null);
+                        setMedicalAttestation(null);
+                        setMedicalAttestationError(null);
+                        setMedicalAttestationLoading(false);
+                      }}
+                      className="inline-flex items-center justify-center rounded border border-zinc-700 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-zinc-800"
+                    >
+                      Run again
+                    </button>
+                  )}
                 </div>
               )}
             </div>

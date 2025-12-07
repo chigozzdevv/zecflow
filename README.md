@@ -345,23 +345,38 @@ Server runs on `http://localhost:4000`, client on `http://localhost:5173`.
 
 ### Server
 
-| Variable | Description |
-|----------|-------------|
-| `PORT` | HTTP port (default: 4000) |
-| `MONGO_URI` | MongoDB connection string |
-| `QUEUE_REDIS_URL` | Redis URL for BullMQ |
-| `JWT_SECRET` | Secret for JWT token signing |
-| `ENCRYPTION_KEY` | 32-byte hex string for field encryption |
-| `NILDB_ENABLED` | Enable NilDB integration (true/false) |
-| `NILDB_NODES` | JSON array of NilDB node configs |
-| `NILLION_API_KEY` | Nillion API key for NilDB/NilAI |
-| `NILAI_API_URL` | NilAI endpoint URL |
-| `NILAI_API_KEY` | NilAI API key |
-| `NILCC_ENABLED` | Enable NilCC integration |
-| `NILCC_API_URL` | NilCC endpoint URL |
-| `ZCASH_RPC_URL` | Zcash node RPC endpoint |
-| `ZCASH_RPC_USER` | Zcash RPC username |
-| `ZCASH_RPC_PASSWORD` | Zcash RPC password |
+| Variable | Description | Required / Default |
+|----------|-------------|--------------------|
+| `NODE_ENV` | Node environment flag | default `development` |
+| `PORT` | HTTP port | default `4000` |
+| `PUBLIC_URL` | Public base URL used for keep-alive pings | **required** |
+| `KEEP_ALIVE_INTERVAL_MS` | Interval for keep-alive ping | optional (defaults to 10m in code if unset) |
+| `MONGO_URI` | MongoDB connection string | **required** |
+| `QUEUE_REDIS_URL` | Redis URL for BullMQ workers | optional (`redis://127.0.0.1:6379` fallback) |
+| `JWT_SECRET` | Access token signing secret | **required** |
+| `JWT_EXPIRES_IN` | Access token TTL | default `1d` |
+| `REFRESH_TOKEN_SECRET` | Refresh token signing secret | **required** |
+| `REFRESH_TOKEN_EXPIRES_IN` | Refresh token TTL | default `7d` |
+| `ENCRYPTION_KEY` | Symmetric key for field encryption (32-byte recommended) | **required** |
+| `CORS_ORIGINS` | Comma-separated allowed origins | optional |
+| `NILDB_ENABLED` | Toggle NilDB integration | default `true` |
+| `NILDB_NODES` | Comma-separated NilDB node URLs | default `https://nildb-stg-n1.nillion.network,https://nildb-stg-n2.nillion.network,https://nildb-stg-n3.nillion.network` |
+| `NILLION_API_KEY` | Nillion API key for NilDB/NilAI | optional |
+| `NILCHAIN_URL` | Nilchain RPC URL | default `http://rpc.testnet.nilchain-rpc-proxy.nilogy.xyz` |
+| `NILAUTH_URL` | Nilauth URL | default `https://nilauth.sandbox.app-cluster.sandbox.nilogy.xyz` |
+| `NILAI_API_KEY` | NilAI API key | optional |
+| `NILAI_BASE_URL` | NilAI base URL | default `https://nilai-a779.nillion.network/v1` |
+| `NILAI_NILAUTH_INSTANCE` | NilAI auth instance (`sandbox`\|`production`) | default `sandbox` |
+| `NILCC_API_KEY` | NilCC API key | optional |
+| `NILCC_BASE_URL` | NilCC base URL | default `https://api.nilcc.nillion.network` |
+| `NILCC_POLL_TIMEOUT_MS` | NilCC poll timeout | optional |
+| `NILCC_POLL_INTERVAL_MS` | NilCC poll interval | optional |
+| `ZCASH_RPC_URL` | Zcash node RPC endpoint | **required** |
+| `ZCASH_RPC_USER` | Zcash RPC username | optional |
+| `ZCASH_RPC_PASSWORD` | Zcash RPC password | optional |
+| `ZCASH_DEFAULT_FROM_ADDRESS` | Default shielded address for sends | optional |
+| `ZCASH_DEFAULT_PRIVACY_POLICY` | Default privacy policy enum | optional |
+| `ZCASH_OPERATION_TIMEOUT_MS` | Zcash RPC timeout (ms) | default `120000` |
 
 ### Client
 
