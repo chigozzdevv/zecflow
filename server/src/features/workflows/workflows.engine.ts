@@ -935,16 +935,21 @@ export class WorkflowEngine {
       let keyStr = typeof key === 'string' && key.length ? key : 'default';
 
       const parts = keyStr.split(':');
+      const collectionFromKey = parts.length === 2 ? parts[0] : undefined;
       if (parts.length === 2) {
         keyStr = parts[1];
       }
+
+      const targetCollectionId = collectionFromKey && collectionFromKey.length
+        ? collectionFromKey
+        : (data.collectionId as string);
 
       const encryptFields = data.encryptFields as string[] | undefined;
       const encryptAll = data.encryptAll as boolean | undefined;
       const hasEncryptFields = Array.isArray(encryptFields) && encryptFields.length > 0;
       const effectiveEncryptAll = encryptAll === true || (encryptAll === undefined && !hasEncryptFields);
       await nildbService.putDocument(
-        data.collectionId as string,
+        targetCollectionId,
         keyStr,
         (dataToStore ?? {}) as Record<string, unknown>,
         undefined,
