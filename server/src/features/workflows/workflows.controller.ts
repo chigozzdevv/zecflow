@@ -202,7 +202,11 @@ export const listWorkflowsHandler = async (req: AuthenticatedRequest, res: Respo
     return;
   }
   const workflows = await listWorkflows(user.organization.toString());
-  res.json({ workflows });
+  const normalized = workflows.map((wf: any) => {
+    const graph = normalizeGraphPositions(wf.graph as any);
+    return graph ? { ...wf, graph } : wf;
+  });
+  res.json({ workflows: normalized });
 };
 
 export const getWorkflowGraphHandler = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
