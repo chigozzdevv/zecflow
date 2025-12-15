@@ -523,16 +523,16 @@ export function DemoPage() {
                   {medicalDecryptionError && (
                     <p className="text-xs text-red-400">{medicalDecryptionError}</p>
                   )}
-              {!medicalDecryptedMessage && !medicalAttestation?.diagnosis && medicalRunStatus === "succeeded" && (
-                <button
-                  type="button"
-                  onClick={handleMedicalReveal}
-                  disabled={medicalDecryptionLoading}
-                  className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
-                >
-                  {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
-                </button>
-              )}
+              {medicalRunStatus === "succeeded" && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMedicalReveal}
+                    disabled={medicalDecryptionLoading}
+                    className="inline-flex items-center justify-center rounded border border-[#6758c1] px-3 py-1.5 text-[11px] font-medium text-white hover:bg-[#6758c1]/10 disabled:opacity-60"
+                  >
+                    {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
+                  </button>
                   {(medicalDecryptedMessage || medicalAttestation?.diagnosis) && (
                     <button
                       type="button"
@@ -553,6 +553,8 @@ export function DemoPage() {
                       Run again
                     </button>
                   )}
+                </div>
+              )}
                 </div>
               )}
             </div>
