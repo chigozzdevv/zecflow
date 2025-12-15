@@ -523,7 +523,7 @@ export function DemoPage() {
                   {medicalDecryptionError && (
                     <p className="text-xs text-red-400">{medicalDecryptionError}</p>
                   )}
-              {!medicalDecryptedMessage && !medicalAttestation?.diagnosis && (
+              {!medicalDecryptedMessage && !medicalAttestation?.diagnosis && medicalRunStatus === "succeeded" && (
                 <button
                   type="button"
                   onClick={handleMedicalReveal}
@@ -533,7 +533,7 @@ export function DemoPage() {
                   {medicalDecryptionLoading ? "Decrypting…" : "Reveal diagnosis"}
                 </button>
               )}
-                  {(medicalRunStatus === "succeeded" || medicalDecryptedMessage || medicalAttestation?.diagnosis) && (
+                  {(medicalDecryptedMessage || medicalAttestation?.diagnosis) && (
                     <button
                       type="button"
                       onClick={() => {
